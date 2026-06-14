@@ -13,6 +13,7 @@ import {
   Images,
   LoaderCircle,
   LogOut,
+  Maximize2,
   Plus,
   Search,
   Settings2,
@@ -32,6 +33,7 @@ import {
 } from './danbooru'
 import { getDesktopApi } from './desktop-api'
 import { ModelSetupPanel } from './components/ModelSetupPanel'
+import { ImageLightbox } from './components/ImageLightbox'
 import { PreprocessStep } from './components/PreprocessStep'
 import { createBrowserDatasetImages, prepareBrowserProjectImages } from './browser-image-preprocessor'
 import { countPreparedImages } from './preprocessing'
@@ -140,6 +142,7 @@ function App() {
   const [modelStatus, setModelStatus] = useState<ModelStatus>(unavailableModelStatus)
   const [modelProgress, setModelProgress] = useState<ModelDownloadProgress | null>(null)
   const [isManagingModel, setIsManagingModel] = useState(false)
+  const [lightboxImage, setLightboxImage] = useState<{ name: string; url: string } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -624,9 +627,16 @@ function App() {
             <span className={`completion-pill ${activeImage.tags.length ? 'ready' : ''}`}>{activeImage.tags.length ? '可以检查' : '等待标签'}</span>
           </div>
           <div className="photo-mat">
-            <div className={`large-preview demo-${Math.max(0, images.indexOf(activeImage)) % 4} ${activeImage.local ? 'local-image' : ''}`} style={activeImage.url ? { backgroundImage: `url("${activeImage.url}")` } : undefined}>
+            <button
+              className={`large-preview preview-open demo-${Math.max(0, images.indexOf(activeImage)) % 4} ${activeImage.local ? 'local-image' : ''}`}
+              type="button"
+              aria-label={`放大查看 ${activeImage.name}`}
+              style={activeImage.url ? { backgroundImage: `url("${activeImage.url}")` } : undefined}
+              onClick={() => activeImage.url && setLightboxImage({ name: activeImage.name, url: activeImage.url })}
+            >
               {activeImage.status === 'tagging' ? <div className="preview-scan"><span /></div> : null}
-            </div>
+              <span className="preview-expand"><Maximize2 size={14} />放大查看</span>
+            </button>
             <span>{strategies[trainingType].label} · {activeImage.name}</span>
           </div>
 
@@ -664,6 +674,7 @@ function App() {
       </aside>
 
       <div className="toast" aria-live="polite">{notice}</div>
+      <ImageLightbox image={lightboxImage} onClose={() => setLightboxImage(null)} />
       </div>
     </div>
   )
