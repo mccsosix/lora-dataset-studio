@@ -21,12 +21,12 @@
 - Create: `src/desktop-api.ts`
 - Create: `tests/desktop-api.test.ts`
 
-- [ ] Add Electron, builder, Vitest, sharp, onnxruntime-node, and keytar dependencies plus `dev`, `test`, `build`, and `dist:win` scripts.
-- [ ] Write a failing test asserting the browser fallback implements the same safe `DesktopApi` methods as the preload bridge without exposing Node primitives.
-- [ ] Run `npm test -- tests/desktop-api.test.ts` and verify the missing bridge contract fails.
-- [ ] Define typed DTOs and expose a minimal `window.loraStudio` bridge through `contextBridge`.
-- [ ] Implement an Electron main window with `contextIsolation: true`, `nodeIntegration: false`, and a strict preload path.
-- [ ] Run the desktop API test, `npm run build`, and a packaged-main TypeScript build.
+- [x] Add Electron, builder, Vitest, sharp, onnxruntime-node, and keytar dependencies plus `dev`, `test`, `build`, and `dist:win` scripts.
+- [x] Write a failing test asserting the browser fallback implements the same safe `DesktopApi` methods as the preload bridge without exposing Node primitives.
+- [x] Run `npm test -- tests/desktop-api.test.ts` and verify the missing bridge contract fails.
+- [x] Define typed DTOs and expose a minimal `window.loraStudio` bridge through `contextBridge`.
+- [x] Implement an Electron main window with `contextIsolation: true`, `nodeIntegration: false`, and a strict preload path.
+- [x] Run the desktop API test, `npm run build`, and a packaged-main TypeScript build.
 
 ### Task 2: Add Native Project And Image Selection
 

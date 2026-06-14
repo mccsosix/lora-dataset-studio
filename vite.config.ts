@@ -154,5 +154,8 @@ function localTaggerPlugin(env: Record<string, string>): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, projectRoot, '')
-  return { plugins: [localTaggerPlugin(env)] }
+  return {
+    base: './',
+    plugins: [localTaggerPlugin(env)],
+  }
 })

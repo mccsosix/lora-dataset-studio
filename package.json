@@ -1,23 +1,60 @@
 {
   "name": "lora-dataset-studio",
+  "productName": "LoRA Dataset Studio",
+  "description": "A local-first workspace for preparing and tagging LoRA training datasets.",
+  "author": "LoRA Dataset Studio contributors",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "dist-electron/electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "dev:desktop": "npm run build:electron && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env LORA_STUDIO_RENDERER_URL=http://127.0.0.1:5173 electron .\"",
+    "test": "vitest run",
+    "build:renderer": "tsc && vite build",
+    "build:electron:main": "tsc -p tsconfig.electron.json",
+    "build:electron:preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/electron/preload.cjs",
+    "build:electron": "npm run build:electron:main && npm run build:electron:preload",
+    "build": "npm run build:renderer && npm run build:electron",
+    "preview": "vite preview",
+    "dist:win": "npm run build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.loradatasetstudio.app",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    }
   },
   "dependencies": {
     "jszip": "^3.10.1",
+    "keytar": "^7.9.0",
     "lucide-react": "^0.468.0",
+    "onnxruntime-node": "^1.26.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "sharp": "^0.35.1"
   },
   "devDependencies": {
+    "@types/node": "^25.9.3",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.1",
     "typescript": "~6.0.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.8",
+    "wait-on": "^9.0.10"
   }
 }
