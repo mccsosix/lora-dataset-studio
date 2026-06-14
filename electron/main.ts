@@ -1,10 +1,13 @@
 import { app, BrowserWindow, ipcMain, net, protocol, shell } from 'electron'
+import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { pathToFileURL } from 'node:url'
 import path from 'node:path'
 import type { RuntimeInfo } from '../src/desktop-api.js'
 import { registerProjectIpc } from './ipc/project.js'
 import { registerPreprocessingIpc } from './ipc/preprocessing.js'
+import { registerModelIpc } from './ipc/models.js'
+import { ModelManager, type ModelManifest } from './services/model-manager.js'
 import { ProjectStore } from './services/project-store.js'
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
@@ -68,11 +71,17 @@ function createMainWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  projectStore = new ProjectStore(path.join(app.getPath('userData'), 'project-state.json'))
+app.whenReady().then(async () => {
+  const userDataPath = app.getPath('userData')
+  projectStore = new ProjectStore(path.join(userDataPath, 'project-state.json'))
   registerDesktopIpc()
   registerProjectIpc(projectStore)
-  registerPreprocessingIpc(projectStore, app.getPath('userData'))
+  registerPreprocessingIpc(projectStore, userDataPath)
+  const manifestPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'models', 'wd14-manifest.json')
+    : path.resolve(currentDirectory, '../../resources/models/wd14-manifest.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ModelManifest
+  registerModelIpc(new ModelManager(path.join(userDataPath, 'models', 'wd14'), manifest))
   registerImageProtocol()
   createMainWindow()
 

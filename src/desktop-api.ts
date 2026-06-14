@@ -1,6 +1,7 @@
 import type { ProjectDto } from './types/project.js'
 import type { PreprocessSettings } from './types/preprocessing.js'
 import type { BatchProgressEvent } from './types/tagging.js'
+import type { ModelDownloadProgress, ModelStatus } from './types/model.js'
 
 export type RuntimeInfo = {
   environment: 'browser' | 'electron'
@@ -13,7 +14,11 @@ export interface DesktopApi {
   loadProject(): Promise<ProjectDto | null>
   saveProject(project: ProjectDto): Promise<ProjectDto>
   prepareImages(settings: PreprocessSettings): Promise<ProjectDto>
+  getModelStatus(): Promise<ModelStatus>
+  installRecommendedModel(): Promise<ModelStatus>
+  removeModel(): Promise<ModelStatus>
   onBatchProgress(callback: (event: BatchProgressEvent) => void): () => void
+  onModelProgress(callback: (event: ModelDownloadProgress) => void): () => void
 }
 
 export const desktopApiMethodNames = [
@@ -22,7 +27,11 @@ export const desktopApiMethodNames = [
   'loadProject',
   'saveProject',
   'prepareImages',
+  'getModelStatus',
+  'installRecommendedModel',
+  'removeModel',
   'onBatchProgress',
+  'onModelProgress',
 ] as const satisfies ReadonlyArray<keyof DesktopApi>
 
 type DesktopInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>
@@ -45,8 +54,20 @@ export function createDesktopApi(invoke: DesktopInvoke, subscribe: DesktopSubscr
     async prepareImages(settings) {
       return await invoke('lora-studio:prepare-images', settings) as ProjectDto
     },
+    async getModelStatus() {
+      return await invoke('lora-studio:get-model-status') as ModelStatus
+    },
+    async installRecommendedModel() {
+      return await invoke('lora-studio:install-recommended-model') as ModelStatus
+    },
+    async removeModel() {
+      return await invoke('lora-studio:remove-model') as ModelStatus
+    },
     onBatchProgress(callback) {
       return subscribe('lora-studio:batch-progress', (event) => callback(event as BatchProgressEvent))
+    },
+    onModelProgress(callback) {
+      return subscribe('lora-studio:model-progress', (event) => callback(event as ModelDownloadProgress))
     },
   }
 }
@@ -94,7 +115,25 @@ export const browserDesktopApi: DesktopApi = {
   async prepareImages() {
     throw new Error('Image preparation is available in the desktop application.')
   },
+  async getModelStatus() {
+    return {
+      state: 'unavailable',
+      name: '本地 WD14',
+      recommendedVersion: '',
+      totalBytes: 0,
+      licenseUrl: '',
+    }
+  },
+  async installRecommendedModel() {
+    throw new Error('本地 WD14 模型下载仅在桌面应用中可用。')
+  },
+  async removeModel() {
+    return browserDesktopApi.getModelStatus()
+  },
   onBatchProgress() {
+    return () => undefined
+  },
+  onModelProgress() {
     return () => undefined
   },
 }

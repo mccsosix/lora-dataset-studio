@@ -40,13 +40,36 @@ describe('browser desktop API fallback', () => {
     await preloadApi.loadProject()
     await expect(preloadApi.saveProject(project)).resolves.toEqual(project)
     await preloadApi.prepareImages({ mode: 'preserve-aspect' })
+    await preloadApi.getModelStatus()
+    await preloadApi.installRecommendedModel()
+    await preloadApi.removeModel()
     expect(invokedChannels).toEqual([
       'lora-studio:get-runtime-info',
       'lora-studio:select-image-folder',
       'lora-studio:load-project',
       'lora-studio:save-project',
       'lora-studio:prepare-images',
+      'lora-studio:get-model-status',
+      'lora-studio:install-recommended-model',
+      'lora-studio:remove-model',
     ])
+  })
+
+  it('subscribes to safe model download progress events', () => {
+    let listener: ((event: unknown) => void) | undefined
+    const api = createDesktopApi(async () => null, (channel, callback) => {
+      expect(channel).toBe('lora-studio:model-progress')
+      listener = callback
+      return () => { listener = undefined }
+    })
+    const events: unknown[] = []
+
+    const unsubscribe = api.onModelProgress((event) => events.push(event))
+    listener?.({ downloadedBytes: 40, totalBytes: 100, fileName: 'model.onnx' })
+    unsubscribe()
+
+    expect(events).toEqual([{ downloadedBytes: 40, totalBytes: 100, fileName: 'model.onnx' }])
+    expect(listener).toBeUndefined()
   })
 
   it('subscribes to safe batch progress events without exposing ipcRenderer', () => {

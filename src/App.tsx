@@ -31,11 +31,13 @@ import {
   type DanbooruTag,
 } from './danbooru'
 import { getDesktopApi } from './desktop-api'
+import { ModelSetupPanel } from './components/ModelSetupPanel'
 import { PreprocessStep } from './components/PreprocessStep'
 import { createBrowserDatasetImages, prepareBrowserProjectImages } from './browser-image-preprocessor'
 import { countPreparedImages } from './preprocessing'
 import type { ProjectDto, ProjectImageStatus } from './types/project'
 import type { ImagePreparationDto, PreprocessMode } from './types/preprocessing'
+import type { ModelDownloadProgress, ModelStatus } from './types/model'
 
 type TrainingType = 'character' | 'style' | 'concept'
 type ImageStatus = ProjectImageStatus
@@ -60,6 +62,13 @@ type LocalTagResponse = {
 
 const desktopApi = getDesktopApi()
 const isDesktop = Boolean(window.loraStudio)
+const unavailableModelStatus: ModelStatus = {
+  state: 'unavailable',
+  name: '本地 WD14',
+  recommendedVersion: '',
+  totalBytes: 0,
+  licenseUrl: '',
+}
 
 const strategies: Record<TrainingType, { label: string; description: string; trigger: string }> = {
   character: { label: '人物', description: '让模型记住一个人物，同时保留不同服装与场景。', trigger: 'ohwx_person' },
@@ -128,6 +137,9 @@ function App() {
   const [localFolderName, setLocalFolderName] = useState('')
   const [hasLoadedLocalFolder, setHasLoadedLocalFolder] = useState(false)
   const [currentProject, setCurrentProject] = useState<ProjectDto | null>(null)
+  const [modelStatus, setModelStatus] = useState<ModelStatus>(unavailableModelStatus)
+  const [modelProgress, setModelProgress] = useState<ModelDownloadProgress | null>(null)
+  const [isManagingModel, setIsManagingModel] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -251,6 +263,40 @@ function App() {
       : image))
     if (event.error) setNotice(`图片处理失败：${event.error}`)
   }), [])
+
+  useEffect(() => {
+    void desktopApi.getModelStatus().then(setModelStatus).catch((error) => {
+      setNotice(error instanceof Error ? error.message : '无法读取本地模型状态')
+    })
+    return desktopApi.onModelProgress(setModelProgress)
+  }, [])
+
+  const installRecommendedModel = async () => {
+    setIsManagingModel(true)
+    setModelProgress({ downloadedBytes: 0, totalBytes: modelStatus.totalBytes, fileName: '准备下载' })
+    try {
+      setModelStatus(await desktopApi.installRecommendedModel())
+      setNotice('本地 WD14 模型已准备好')
+    } catch (error) {
+      setModelStatus(await desktopApi.getModelStatus())
+      setNotice(error instanceof Error ? error.message : '模型下载失败')
+    } finally {
+      setIsManagingModel(false)
+      setModelProgress(null)
+    }
+  }
+
+  const removeModel = async () => {
+    setIsManagingModel(true)
+    try {
+      setModelStatus(await desktopApi.removeModel())
+      setNotice('已移除本地 WD14 模型')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '无法移除本地模型')
+    } finally {
+      setIsManagingModel(false)
+    }
+  }
 
   useEffect(() => {
     if (!currentProject || !hasLoadedLocalFolder) return
@@ -582,7 +628,18 @@ function App() {
 
           <section className="advanced">
             <button type="button" onClick={() => setShowAdvanced((current) => !current)}><Settings2 size={17} /><span><strong>高级设置</strong><small>大多数情况下不用修改</small></span>{showAdvanced ? <ChevronDown size={18} /> : <ChevronRight size={18} />}</button>
-            {showAdvanced ? <div className="advanced-body"><label>触发词<input value={strategies[trainingType].trigger} readOnly /></label><label>标签筛选<input type="range" min=".1" max=".95" step=".05" value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} /></label><p>向右调会减少不确定的标签。默认设置适合大多数情况。</p></div> : null}
+            {showAdvanced ? <div className="advanced-body">
+              <label>触发词<input value={strategies[trainingType].trigger} readOnly /></label>
+              <label>标签筛选<input type="range" min=".1" max=".95" step=".05" value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} /></label>
+              <p>向右调会减少不确定的标签。默认设置适合大多数情况。</p>
+              <ModelSetupPanel
+                status={modelStatus}
+                progress={modelProgress}
+                isBusy={isManagingModel}
+                onInstall={() => void installRecommendedModel()}
+                onRemove={() => void removeModel()}
+              />
+            </div> : null}
           </section>
           <button className="remove-button" type="button" onClick={removeActiveImage}><Trash2 size={16} />从项目中移除</button>
         </> : <div className="empty-panel"><Images size={36} /><p>放入图片后，就可以在这里检查标签。</p></div>}

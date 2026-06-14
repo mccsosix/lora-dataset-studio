@@ -84,11 +84,11 @@
 - Create: `src/components/ModelSetupPanel.tsx`
 - Test: `tests/model-manager.test.ts`
 
-- [ ] Write failing tests for absent, partial, ready, corrupt, upgrade-available, and upgrade-failed model states.
-- [ ] Define a pinned manifest containing model version, source URLs, license URL, sizes, and SHA-256 checksums.
-- [ ] Implement streamed downloads to a partial directory, checksum verification, atomic activation, retry, deletion, and old-version fallback.
-- [ ] Build the local-model setup UI showing size, license, progress, version, retry, and remove actions.
-- [ ] Verify a failed or corrupt download never replaces a working installed model.
+- [x] Write failing tests for absent, partial, ready, corrupt, upgrade-available, and upgrade-failed model states.
+- [x] Define a pinned manifest containing model version, source URLs, license URL, sizes, and SHA-256 checksums.
+- [x] Implement streamed downloads to a partial directory, checksum verification, atomic activation, retry, deletion, and old-version fallback.
+- [x] Build the local-model setup UI showing size, license, progress, version, retry, and remove actions.
+- [x] Verify a failed or corrupt download never replaces a working installed model.
 
 ### Task 6: Implement Local WD14 Adapter
 
