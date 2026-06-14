@@ -32,6 +32,7 @@ import {
 } from './danbooru'
 import { getDesktopApi } from './desktop-api'
 import { PreprocessStep } from './components/PreprocessStep'
+import { createBrowserDatasetImages, prepareBrowserProjectImages } from './browser-image-preprocessor'
 import { countPreparedImages } from './preprocessing'
 import type { ProjectDto, ProjectImageStatus } from './types/project'
 import type { ImagePreparationDto, PreprocessMode } from './types/preprocessing'
@@ -43,6 +44,7 @@ type DatasetImage = {
   id: string
   name: string
   url: string
+  sourceUrl?: string
   tags: DanbooruTag[]
   originalTags: DanbooruTag[]
   selected: boolean
@@ -127,6 +129,7 @@ function App() {
   const [hasLoadedLocalFolder, setHasLoadedLocalFolder] = useState(false)
   const [currentProject, setCurrentProject] = useState<ProjectDto | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const noiseSourceRef = useRef<AudioBufferSourceNode | null>(null)
   const noiseGainRef = useRef<GainNode | null>(null)
@@ -152,6 +155,7 @@ function App() {
       id: image.id,
       name: image.name,
       url: image.previewUrl,
+      sourceUrl: image.previewUrl,
       tags: image.tags,
       originalTags: image.originalTags,
       selected: image.selected,
@@ -202,13 +206,31 @@ function App() {
   }
 
   const prepareImages = async () => {
-    if (!currentProject || !images.length) {
+    if (!images.length || (isDesktop && !currentProject)) {
       setNotice('请先选择图片文件夹')
+      return
+    }
+    if (!isDesktop && images.some((image) => !image.sourceUrl)) {
+      setNotice('请先导入真实图片，再进行网页图片处理')
       return
     }
     setIsPreparing(true)
     setNotice(`正在准备 ${images.length} 张训练图片…`)
     try {
+      if (!isDesktop) {
+        const preparedImages = await prepareBrowserProjectImages(
+          images,
+          { mode: preprocessMode },
+          undefined,
+          (progressImages) => setImages(progressImages),
+        )
+        images.forEach((image) => {
+          if (image.url.startsWith('blob:') && image.url !== image.sourceUrl) URL.revokeObjectURL(image.url)
+        })
+        setImages(preparedImages)
+        setNotice(`网页图片已准备完成：${preparedImages.length} 张 · ${preprocessMode}`)
+        return
+      }
       const project = await desktopApi.prepareImages({ mode: preprocessMode })
       applyProject(project)
       setNotice(`图片已准备完成：${project.images.length} 张 · ${preprocessMode}`)
@@ -253,18 +275,27 @@ function App() {
     return () => window.clearTimeout(saveTimer)
   }, [images, currentProject?.id, hasLoadedLocalFolder])
 
-  const handleFiles = (files: FileList | null) => {
+  const handleFiles = (files: FileList | null, replace = false) => {
     if (!files) return
-    const added = Array.from(files).flatMap((file) => file.type.startsWith('image/') ? [{
-      id: crypto.randomUUID(),
-      name: file.name,
-      url: URL.createObjectURL(file),
-      tags: [],
-      originalTags: [],
-      selected: false,
-      status: 'queued' as ImageStatus,
-    }] : [])
-    startTransition(() => setImages((current) => [...current, ...added]))
+    const added: DatasetImage[] = createBrowserDatasetImages(files)
+    const shouldReplace = replace || images.every((image) => !image.sourceUrl)
+    if (shouldReplace && added[0]) added[0].selected = true
+    if (shouldReplace) {
+      images.forEach((image) => {
+        if (image.url.startsWith('blob:')) URL.revokeObjectURL(image.url)
+        if (image.sourceUrl?.startsWith('blob:') && image.sourceUrl !== image.url) URL.revokeObjectURL(image.sourceUrl)
+      })
+      startTransition(() => setImages(added))
+      setCurrentProject(null)
+      if (replace) {
+        const relativePath = files[0]?.webkitRelativePath
+        setLocalFolderName(relativePath?.split('/')[0] || '浏览器导入图片')
+      } else {
+        setLocalFolderName('浏览器导入图片')
+      }
+    } else {
+      startTransition(() => setImages((current) => [...current, ...added]))
+    }
     if (added[0]) setActiveId(added[0].id)
     setNotice(`已将 ${added.length} 张图片放上灯箱`)
   }
@@ -475,9 +506,10 @@ function App() {
         <div className="lightroom-toolbar">
           <div className="project-title"><span>当前项目</span><strong>{localFolderName ? `本地文件夹：${localFolderName}` : '人物练习集'}</strong><em>{images.length} 张图片 · {taggedCount} 张已完成</em></div>
           <label className="search" htmlFor="search"><Search size={18} /><input id="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索图片或标签" /></label>
-          <button className="quiet-button folder-button" type="button" disabled={isTagging} onClick={selectImageFolder}><FolderOpen size={18} />选择图片文件夹</button>
+          <button className="quiet-button folder-button" type="button" disabled={isTagging} onClick={() => isDesktop ? void selectImageFolder() : folderInput.current?.click()}><FolderOpen size={18} />{isDesktop ? '选择图片文件夹' : '导入图片文件夹'}</button>
           <button className="quiet-button" type="button" onClick={() => fileInput.current?.click()}><ImagePlus size={18} />添加图片</button>
-          <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => handleFiles(event.target.files)} />
+          <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => { handleFiles(event.target.files); event.currentTarget.value = '' }} />
+          <input ref={folderInput} type="file" accept="image/*" multiple hidden {...({ webkitdirectory: '', directory: '' } as Record<string, string>)} onChange={(event) => { handleFiles(event.target.files, true); event.currentTarget.value = '' }} />
         </div>
 
         <section className="light-table" aria-label="图片灯箱">
@@ -516,7 +548,7 @@ function App() {
                   <button className={`select-check ${image.selected ? 'checked' : ''}`} type="button" aria-label={`${image.selected ? '取消选择' : '选择'} ${image.name}`} onClick={() => updateImage(image.id, { selected: !image.selected })}>{image.selected ? <Check size={15} strokeWidth={3} /> : null}</button>
                   {image.status === 'tagging' ? <div className="reading-state"><Aperture size={19} className="spin" />正在读取</div> : null}
                 </div>
-                <div className="film-caption"><strong>{image.name}</strong><span className={image.tags.length ? 'ready' : ''}>{image.tags.length ? <><CircleCheck size={14} />{image.tags.length} 个标签</> : '等待生成标签'}</span></div>
+                <div className="film-caption"><strong>{image.name}</strong><span className={image.tags.length || image.preparation ? 'ready' : ''}>{image.tags.length ? <><CircleCheck size={14} />{image.tags.length} 个标签</> : image.preparation ? <><CircleCheck size={14} />已准备 {image.preparation.outputDimensions.width}×{image.preparation.outputDimensions.height}</> : '等待准备图片'}</span></div>
               </article>
             ))}
             <button className="add-film" type="button" onClick={() => fileInput.current?.click()}><span><Plus size={27} /></span><strong>放入更多图片</strong><small>PNG、JPG、WEBP</small></button>

@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import {
-  calculateOutputGeometry,
   preprocessImage,
 } from '../electron/services/image-preprocessor'
+import { calculateOutputGeometry } from '../src/preprocessing'
 
 describe('calculateOutputGeometry', () => {
   it('creates aligned SDXL bucket dimensions while preserving aspect ratio', () => {
