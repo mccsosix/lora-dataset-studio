@@ -42,6 +42,7 @@ describe('browser desktop API fallback', () => {
     await preloadApi.prepareImages({ mode: 'preserve-aspect' })
     await preloadApi.getModelStatus()
     await preloadApi.installRecommendedModel()
+    await preloadApi.selectExistingModel()
     await preloadApi.removeModel()
     expect(invokedChannels).toEqual([
       'lora-studio:get-runtime-info',
@@ -51,6 +52,7 @@ describe('browser desktop API fallback', () => {
       'lora-studio:prepare-images',
       'lora-studio:get-model-status',
       'lora-studio:install-recommended-model',
+      'lora-studio:select-existing-model',
       'lora-studio:remove-model',
     ])
   })

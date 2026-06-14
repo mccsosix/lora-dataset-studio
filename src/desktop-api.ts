@@ -16,6 +16,7 @@ export interface DesktopApi {
   prepareImages(settings: PreprocessSettings): Promise<ProjectDto>
   getModelStatus(): Promise<ModelStatus>
   installRecommendedModel(): Promise<ModelStatus>
+  selectExistingModel(): Promise<ModelStatus | null>
   removeModel(): Promise<ModelStatus>
   onBatchProgress(callback: (event: BatchProgressEvent) => void): () => void
   onModelProgress(callback: (event: ModelDownloadProgress) => void): () => void
@@ -29,6 +30,7 @@ export const desktopApiMethodNames = [
   'prepareImages',
   'getModelStatus',
   'installRecommendedModel',
+  'selectExistingModel',
   'removeModel',
   'onBatchProgress',
   'onModelProgress',
@@ -59,6 +61,9 @@ export function createDesktopApi(invoke: DesktopInvoke, subscribe: DesktopSubscr
     },
     async installRecommendedModel() {
       return await invoke('lora-studio:install-recommended-model') as ModelStatus
+    },
+    async selectExistingModel() {
+      return await invoke('lora-studio:select-existing-model') as ModelStatus | null
     },
     async removeModel() {
       return await invoke('lora-studio:remove-model') as ModelStatus
@@ -116,16 +121,15 @@ export const browserDesktopApi: DesktopApi = {
     throw new Error('Image preparation is available in the desktop application.')
   },
   async getModelStatus() {
-    return {
-      state: 'unavailable',
-      name: '本地 WD14',
-      recommendedVersion: '',
-      totalBytes: 0,
-      licenseUrl: '',
-    }
+    const response = await fetch('/api/model-status')
+    if (response.ok) return await response.json() as ModelStatus
+    return unavailableModelStatus()
   },
   async installRecommendedModel() {
     throw new Error('本地 WD14 模型下载仅在桌面应用中可用。')
+  },
+  async selectExistingModel() {
+    throw new Error('网页模式请通过本地开发配置检测 WD14 模型。')
   },
   async removeModel() {
     return browserDesktopApi.getModelStatus()
@@ -136,6 +140,16 @@ export const browserDesktopApi: DesktopApi = {
   onModelProgress() {
     return () => undefined
   },
+}
+
+function unavailableModelStatus(): ModelStatus {
+  return {
+    state: 'unavailable',
+    name: '本地 WD14',
+    recommendedVersion: '',
+    totalBytes: 0,
+    licenseUrl: '',
+  }
 }
 
 declare global {

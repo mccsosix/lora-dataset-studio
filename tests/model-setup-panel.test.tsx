@@ -15,7 +15,10 @@ describe('ModelSetupPanel', () => {
         }}
         progress={null}
         isBusy={false}
+        allowSelectExisting={false}
+        allowRemove={false}
         onInstall={() => undefined}
+        onSelectExisting={() => undefined}
         onRemove={() => undefined}
       />,
     )
@@ -40,6 +43,7 @@ describe('ModelSetupPanel', () => {
         progress={null}
         isBusy={false}
         onInstall={() => undefined}
+        onSelectExisting={() => undefined}
         onRemove={() => undefined}
       />,
     )
@@ -56,6 +60,7 @@ describe('ModelSetupPanel', () => {
         progress={{ downloadedBytes: 40, totalBytes: 100, fileName: 'model.onnx' }}
         isBusy
         onInstall={() => undefined}
+        onSelectExisting={() => undefined}
         onRemove={() => undefined}
       />,
     )
@@ -65,6 +70,7 @@ describe('ModelSetupPanel', () => {
         progress={null}
         isBusy={false}
         onInstall={() => undefined}
+        onSelectExisting={() => undefined}
         onRemove={() => undefined}
       />,
     )
@@ -72,5 +78,25 @@ describe('ModelSetupPanel', () => {
     expect(progressMarkup).toContain('40%')
     expect(failedMarkup).toContain('旧版本仍然可用')
     expect(failedMarkup).toContain('重试下载')
+  })
+
+  it('shows an existing local model as ready without a download action', () => {
+    const markup = renderToStaticMarkup(
+      <ModelSetupPanel
+        status={{ state: 'external', name: 'wd14-vit-v3', recommendedVersion: '2', installedVersion: 'wd14-vit-v3', totalBytes: 100, licenseUrl: '#' }}
+        progress={null}
+        isBusy={false}
+        allowSelectExisting={false}
+        allowRemove={false}
+        onInstall={() => undefined}
+        onSelectExisting={() => undefined}
+        onRemove={() => undefined}
+      />,
+    )
+
+    expect(markup).toContain('检测到已有本地模型')
+    expect(markup).toContain('wd14-vit-v3')
+    expect(markup).not.toContain('下载推荐模型')
+    expect(markup).not.toContain('移除模型')
   })
 })

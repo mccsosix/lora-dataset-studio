@@ -1,4 +1,4 @@
-export type ModelState = 'unavailable' | 'absent' | 'partial' | 'ready' | 'corrupt' | 'upgrade-available' | 'upgrade-failed'
+export type ModelState = 'unavailable' | 'absent' | 'partial' | 'ready' | 'external' | 'corrupt' | 'upgrade-available' | 'upgrade-failed'
 
 export type ModelStatus = {
   state: ModelState

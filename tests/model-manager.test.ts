@@ -117,4 +117,52 @@ describe('ModelManager', () => {
 
     await expect(manager.remove()).resolves.toMatchObject({ state: 'absent' })
   })
+
+  it('uses an existing compatible model directory without downloading it', async () => {
+    const directory = await root()
+    const externalDirectory = join(directory, 'existing-wd14')
+    await mkdir(externalDirectory, { recursive: true })
+    await writeFile(join(externalDirectory, 'model.onnx'), modelBytes)
+    await writeFile(join(externalDirectory, 'selected_tags.csv'), tagsBytes)
+    const manager = new ModelManager(join(directory, 'managed'), manifest(), async () => {
+      throw new Error('download should not run')
+    })
+
+    const status = await manager.useExistingDirectory(externalDirectory)
+
+    expect(status).toMatchObject({
+      state: 'external',
+      name: 'existing-wd14',
+      installedVersion: 'existing-wd14',
+    })
+    expect(JSON.stringify(status)).not.toContain(directory)
+    await expect(manager.getStatus()).resolves.toMatchObject({ state: 'external' })
+    await expect(manager.getActiveModelDirectory()).resolves.toBe(externalDirectory)
+  })
+
+  it('rejects an incompatible existing model directory', async () => {
+    const directory = await root()
+    const externalDirectory = join(directory, 'incomplete-wd14')
+    await mkdir(externalDirectory, { recursive: true })
+    await writeFile(join(externalDirectory, 'model.onnx'), modelBytes)
+    const manager = new ModelManager(join(directory, 'managed'), manifest(), downloadFixture)
+
+    await expect(manager.useExistingDirectory(externalDirectory)).rejects.toThrow('selected_tags.csv')
+    await expect(manager.getStatus()).resolves.toMatchObject({ state: 'absent' })
+  })
+
+  it('can replace an external model reference with the downloaded recommended model', async () => {
+    const directory = await root()
+    const externalDirectory = join(directory, 'existing-wd14')
+    await mkdir(externalDirectory, { recursive: true })
+    await writeFile(join(externalDirectory, 'model.onnx'), modelBytes)
+    await writeFile(join(externalDirectory, 'selected_tags.csv'), tagsBytes)
+    const manager = new ModelManager(join(directory, 'managed'), manifest(), downloadFixture)
+    await manager.useExistingDirectory(externalDirectory)
+
+    await manager.install()
+
+    await expect(manager.getStatus()).resolves.toMatchObject({ state: 'ready', installedVersion: '1.0.0' })
+    await expect(manager.getActiveModelDirectory()).resolves.toBe(join(directory, 'managed', '1.0.0'))
+  })
 })

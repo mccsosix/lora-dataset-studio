@@ -38,6 +38,14 @@ export class ModelManager {
 
   async getStatus(): Promise<ModelStatus> {
     const base = this.baseStatus()
+    const external = await this.readJson<{ directory: string }>(join(this.rootDirectory, 'external.json'))
+    if (external) {
+      if (await isCompatibleModelDirectory(external.directory)) {
+        const name = basename(external.directory)
+        return { ...base, state: 'external', name, installedVersion: name }
+      }
+      return { ...base, state: 'corrupt', installedVersion: basename(external.directory) }
+    }
     const current = await this.readJson<{ version: string }>(join(this.rootDirectory, 'current.json'))
     if (!current) {
       return await pathExists(this.partialDirectory()) ? { ...base, state: 'partial' } : { ...base, state: 'absent' }
@@ -97,6 +105,7 @@ export class ModelManager {
       }
       await this.writeJsonAtomic('current.json', { version: this.manifest.version })
       await rm(backupDirectory, { recursive: true, force: true })
+      await rm(join(this.rootDirectory, 'external.json'), { force: true })
       await rm(join(this.rootDirectory, 'last-error.json'), { force: true })
       return this.getStatus()
     } catch (error) {
@@ -109,6 +118,24 @@ export class ModelManager {
   async remove(): Promise<ModelStatus> {
     await rm(this.rootDirectory, { recursive: true, force: true })
     return this.getStatus()
+  }
+
+  async useExistingDirectory(directory: string): Promise<ModelStatus> {
+    const missing = await missingCompatibleModelFiles(directory)
+    if (missing.length) throw new Error(`Existing WD14 model is missing: ${missing.join(', ')}`)
+    await mkdir(this.rootDirectory, { recursive: true })
+    await this.writeJsonAtomic('external.json', { directory })
+    await rm(join(this.rootDirectory, 'current.json'), { force: true })
+    return this.getStatus()
+  }
+
+  async getActiveModelDirectory(): Promise<string | null> {
+    const external = await this.readJson<{ directory: string }>(join(this.rootDirectory, 'external.json'))
+    if (external && await isCompatibleModelDirectory(external.directory)) return external.directory
+    const current = await this.readJson<{ version: string }>(join(this.rootDirectory, 'current.json'))
+    if (!current) return null
+    const directory = join(this.rootDirectory, current.version)
+    return await pathExists(directory) ? directory : null
   }
 
   private partialDirectory() {
@@ -170,6 +197,22 @@ async function pathExists(filePath: string) {
   } catch {
     return false
   }
+}
+
+async function missingCompatibleModelFiles(directory: string) {
+  const missing: string[] = []
+  for (const name of ['model.onnx', 'selected_tags.csv']) {
+    try {
+      if ((await stat(join(directory, name))).size <= 0) missing.push(name)
+    } catch {
+      missing.push(name)
+    }
+  }
+  return missing
+}
+
+export async function isCompatibleModelDirectory(directory: string) {
+  return (await missingCompatibleModelFiles(directory)).length === 0
 }
 
 async function hashFile(filePath: string) {

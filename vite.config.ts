@@ -47,6 +47,7 @@ function localTaggerPlugin(env: Record<string, string>): Plugin {
   const scriptPath = join(projectRoot, 'scripts', 'wd14_tagger.py')
   const previewScriptPath = join(projectRoot, 'scripts', 'flatten_preview.py')
   const previewFolder = join(projectRoot, '.local-cache', 'previews')
+  const modelFolder = env.WD14_MODEL_DIR ? resolve(env.WD14_MODEL_DIR) : undefined
   mkdirSync(previewFolder, { recursive: true })
 
   const listImages = () => readdirSync(imageFolder)
@@ -59,6 +60,27 @@ function localTaggerPlugin(env: Record<string, string>): Plugin {
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {
         const url = new URL(request.url || '/', 'http://localhost')
+
+        if (request.method === 'GET' && url.pathname === '/api/model-status') {
+          const compatible = Boolean(modelFolder
+            && existsSync(join(modelFolder, 'model.onnx'))
+            && existsSync(join(modelFolder, 'selected_tags.csv')))
+          sendJson(response, 200, compatible ? {
+            state: 'external',
+            name: basename(modelFolder!),
+            recommendedVersion: 'desktop-recommended',
+            installedVersion: basename(modelFolder!),
+            totalBytes: statSync(join(modelFolder!, 'model.onnx')).size + statSync(join(modelFolder!, 'selected_tags.csv')).size,
+            licenseUrl: 'https://huggingface.co/SmilingWolf',
+          } : {
+            state: 'unavailable',
+            name: '本地 WD14',
+            recommendedVersion: '',
+            totalBytes: 0,
+            licenseUrl: '',
+          })
+          return
+        }
 
         if (request.method === 'GET' && url.pathname === '/api/local-images') {
           try {
@@ -119,7 +141,8 @@ function localTaggerPlugin(env: Record<string, string>): Plugin {
             }
 
             const fileArguments = names.flatMap((name: string) => ['--file', name])
-            const child = spawn(pythonPath, [scriptPath, '--folder', imageFolder, ...fileArguments, '--threshold', String(threshold)], {
+            const modelArguments = modelFolder ? ['--model-dir', modelFolder] : []
+            const child = spawn(pythonPath, [scriptPath, '--folder', imageFolder, ...fileArguments, ...modelArguments, '--threshold', String(threshold)], {
               cwd: projectRoot,
               windowsHide: true,
             })

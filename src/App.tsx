@@ -298,6 +298,21 @@ function App() {
     }
   }
 
+  const selectExistingModel = async () => {
+    setIsManagingModel(true)
+    try {
+      const status = await desktopApi.selectExistingModel()
+      if (status) {
+        setModelStatus(status)
+        setNotice('已使用检测到的本地 WD14 模型，无需下载')
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '无法使用所选模型目录')
+    } finally {
+      setIsManagingModel(false)
+    }
+  }
+
   useEffect(() => {
     if (!currentProject || !hasLoadedLocalFolder) return
     const project: ProjectDto = {
@@ -636,7 +651,10 @@ function App() {
                 status={modelStatus}
                 progress={modelProgress}
                 isBusy={isManagingModel}
+                allowSelectExisting={isDesktop}
+                allowRemove={isDesktop}
                 onInstall={() => void installRecommendedModel()}
+                onSelectExisting={() => void selectExistingModel()}
                 onRemove={() => void removeModel()}
               />
             </div> : null}
