@@ -223,6 +223,13 @@ function App() {
     if (view === 'workspace' && !hasLoadedLocalFolder) void loadProject()
   }, [view, hasLoadedLocalFolder])
 
+  useEffect(() => desktopApi.onBatchProgress((event) => {
+    setImages((current) => current.map((image) => image.id === event.imageId
+      ? { ...image, status: event.status }
+      : image))
+    if (event.error) setNotice(`图片处理失败：${event.error}`)
+  }), [])
+
   useEffect(() => {
     if (!currentProject || !hasLoadedLocalFolder) return
     const project: ProjectDto = {

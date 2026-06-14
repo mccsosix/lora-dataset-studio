@@ -1,5 +1,6 @@
 import type { ProjectDto } from './types/project.js'
 import type { PreprocessSettings } from './types/preprocessing.js'
+import type { BatchProgressEvent } from './types/tagging.js'
 
 export type RuntimeInfo = {
   environment: 'browser' | 'electron'
@@ -12,6 +13,7 @@ export interface DesktopApi {
   loadProject(): Promise<ProjectDto | null>
   saveProject(project: ProjectDto): Promise<ProjectDto>
   prepareImages(settings: PreprocessSettings): Promise<ProjectDto>
+  onBatchProgress(callback: (event: BatchProgressEvent) => void): () => void
 }
 
 export const desktopApiMethodNames = [
@@ -20,11 +22,13 @@ export const desktopApiMethodNames = [
   'loadProject',
   'saveProject',
   'prepareImages',
+  'onBatchProgress',
 ] as const satisfies ReadonlyArray<keyof DesktopApi>
 
 type DesktopInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>
+type DesktopSubscribe = (channel: string, callback: (event: unknown) => void) => () => void
 
-export function createDesktopApi(invoke: DesktopInvoke): DesktopApi {
+export function createDesktopApi(invoke: DesktopInvoke, subscribe: DesktopSubscribe = () => () => undefined): DesktopApi {
   return {
     async getRuntimeInfo() {
       return await invoke('lora-studio:get-runtime-info') as RuntimeInfo
@@ -40,6 +44,9 @@ export function createDesktopApi(invoke: DesktopInvoke): DesktopApi {
     },
     async prepareImages(settings) {
       return await invoke('lora-studio:prepare-images', settings) as ProjectDto
+    },
+    onBatchProgress(callback) {
+      return subscribe('lora-studio:batch-progress', (event) => callback(event as BatchProgressEvent))
     },
   }
 }
@@ -86,6 +93,9 @@ export const browserDesktopApi: DesktopApi = {
   },
   async prepareImages() {
     throw new Error('Image preparation is available in the desktop application.')
+  },
+  onBatchProgress() {
+    return () => undefined
   },
 }
 

@@ -48,4 +48,25 @@ describe('browser desktop API fallback', () => {
       'lora-studio:prepare-images',
     ])
   })
+
+  it('subscribes to safe batch progress events without exposing ipcRenderer', () => {
+    let listener: ((event: unknown) => void) | undefined
+    const api = createDesktopApi(
+      async () => null,
+      (channel, callback) => {
+        expect(channel).toBe('lora-studio:batch-progress')
+        listener = callback
+        return () => { listener = undefined }
+      },
+    )
+    const events: unknown[] = []
+
+    const unsubscribe = api.onBatchProgress((event) => events.push(event))
+    listener?.({ imageId: 'one', status: 'ready', completed: 1, total: 2 })
+    unsubscribe()
+
+    expect(events).toEqual([{ imageId: 'one', status: 'ready', completed: 1, total: 2 }])
+    expect(listener).toBeUndefined()
+    expect(api).not.toHaveProperty('ipcRenderer')
+  })
 })

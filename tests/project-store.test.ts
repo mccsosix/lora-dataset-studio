@@ -53,4 +53,37 @@ describe('ProjectStore', () => {
     expect(restoredStore.getSourcePath(project.images[0].id)).toBe(join(imageFolder, 'one.png'))
     expect(JSON.stringify(restored)).not.toContain(root)
   })
+
+  it('persists private batch state without exposing raw responses in the project DTO', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lora-project-batch-'))
+    const imageFolder = join(root, 'images')
+    const stateFile = join(root, 'user-data', 'project-state.json')
+    await mkdir(imageFolder, { recursive: true })
+    await writeFile(join(imageFolder, 'one.jpg'), Buffer.from('source-image'))
+    const store = new ProjectStore(stateFile)
+    const project = await store.createProjectFromFolder(imageFolder)
+    const batchState = {
+      providerId: 'local-wd14' as const,
+      trainingType: 'character' as const,
+      threshold: 0.35,
+      items: {
+        [project.images[0].id]: {
+          imageId: project.images[0].id,
+          status: 'ready' as const,
+          result: {
+            imageId: project.images[0].id,
+            providerId: 'local-wd14' as const,
+            tags: [],
+            rawResponse: { privateModelOutput: true },
+          },
+        },
+      },
+    }
+
+    await store.saveBatchState(batchState)
+    const restoredStore = new ProjectStore(stateFile)
+
+    expect(await restoredStore.loadBatchState()).toEqual(batchState)
+    expect(JSON.stringify(await restoredStore.loadProject())).not.toContain('privateModelOutput')
+  })
 })

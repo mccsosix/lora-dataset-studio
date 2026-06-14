@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import type { ProjectDto, ProjectImageDto } from '../../src/types/project.js'
 import type { PreprocessImageResult } from './image-preprocessor.js'
+import type { BatchState } from './batch-runner.js'
 
 const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 
@@ -16,6 +17,7 @@ type PersistedImage = Omit<ProjectImageDto, 'previewUrl'> & {
 type PersistedProject = Omit<ProjectDto, 'images' | 'folderName'> & {
   folderPath: string
   images: PersistedImage[]
+  batch?: BatchState
 }
 
 function stableId(value: string) {
@@ -153,6 +155,18 @@ export class ProjectStore {
     this.project.updatedAt = new Date().toISOString()
     await this.persist()
     return toProjectDto(this.project)
+  }
+
+  async loadBatchState(): Promise<BatchState | null> {
+    if (!this.project) await this.loadProject()
+    return this.project?.batch ? structuredClone(this.project.batch) : null
+  }
+
+  async saveBatchState(state: BatchState): Promise<void> {
+    if (!this.project) await this.loadProject()
+    if (!this.project) throw new Error('No active project.')
+    this.project.batch = structuredClone(state)
+    await this.persist()
   }
 
   private async persist() {

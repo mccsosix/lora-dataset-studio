@@ -70,11 +70,11 @@
 - Test: `tests/tag-normalizer.test.ts`
 - Test: `tests/batch-runner.test.ts`
 
-- [ ] Write failing tests for normalization, deduplication, category fallback, per-image failure, cancel, resume, and retry.
-- [ ] Define `TaggerAdapter`, `TagRequest`, `TagResult`, readiness, and progress event contracts.
-- [ ] Implement a batch runner that persists image-level progress and never aborts completed items after one failure.
-- [ ] Add IPC progress events and renderer subscriptions.
-- [ ] Verify restart restores completed and failed states and retry targets only failures.
+- [x] Write failing tests for normalization, deduplication, category fallback, per-image failure, cancel, resume, and retry.
+- [x] Define `TaggerAdapter`, `TagRequest`, `TagResult`, readiness, and progress event contracts.
+- [x] Implement a batch runner that persists image-level progress and never aborts completed items after one failure.
+- [x] Add IPC progress events and renderer subscriptions.
+- [x] Verify restart restores completed and failed states and retry targets only failures.
 
 ### Task 5: Implement Recommended WD14 Model Manager
 
