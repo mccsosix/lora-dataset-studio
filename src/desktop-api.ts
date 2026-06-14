@@ -1,4 +1,5 @@
 import type { ProjectDto } from './types/project.js'
+import type { PreprocessSettings } from './types/preprocessing.js'
 
 export type RuntimeInfo = {
   environment: 'browser' | 'electron'
@@ -10,6 +11,7 @@ export interface DesktopApi {
   selectImageFolder(): Promise<ProjectDto | null>
   loadProject(): Promise<ProjectDto | null>
   saveProject(project: ProjectDto): Promise<ProjectDto>
+  prepareImages(settings: PreprocessSettings): Promise<ProjectDto>
 }
 
 export const desktopApiMethodNames = [
@@ -17,6 +19,7 @@ export const desktopApiMethodNames = [
   'selectImageFolder',
   'loadProject',
   'saveProject',
+  'prepareImages',
 ] as const satisfies ReadonlyArray<keyof DesktopApi>
 
 type DesktopInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>
@@ -34,6 +37,9 @@ export function createDesktopApi(invoke: DesktopInvoke): DesktopApi {
     },
     async saveProject(project) {
       return await invoke('lora-studio:save-project', project) as ProjectDto
+    },
+    async prepareImages(settings) {
+      return await invoke('lora-studio:prepare-images', settings) as ProjectDto
     },
   }
 }
@@ -77,6 +83,9 @@ export const browserDesktopApi: DesktopApi = {
   async saveProject(project) {
     browserProject = project
     return project
+  },
+  async prepareImages() {
+    throw new Error('Image preparation is available in the desktop application.')
   },
 }
 

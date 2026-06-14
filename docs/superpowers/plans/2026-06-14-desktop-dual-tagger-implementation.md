@@ -54,11 +54,11 @@
 - Modify: `src/App.tsx`
 - Test: `tests/image-preprocessor.test.ts`
 
-- [ ] Write failing geometry tests for 1024-square-area bucket sizing with 64-pixel alignment and 256/2048 side limits, `1024x1024` white padding, and `1024x1024` center crop using portrait, landscape, square, extreme-aspect, and small inputs.
-- [ ] Implement EXIF orientation, sRGB conversion, Lanczos resizing, transparency flattening, and JPEG quality 95 with `sharp`.
-- [ ] Preserve original base filenames, write `.jpg` files into a project processed-images directory, and record dimensions and mode.
-- [ ] Build the beginner-facing preprocessing step with preserve-aspect selected by default and warnings for padding and crop.
-- [ ] Verify originals remain byte-identical and all processed images are readable JPEGs.
+- [x] Write failing geometry tests for 1024-square-area bucket sizing with 64-pixel alignment and 256/2048 side limits, `1024x1024` white padding, and `1024x1024` center crop using portrait, landscape, square, extreme-aspect, and small inputs.
+- [x] Implement EXIF orientation, sRGB conversion, Lanczos resizing, transparency flattening, and JPEG quality 95 with `sharp`.
+- [x] Preserve original base filenames, write `.jpg` files into a project processed-images directory, and record dimensions and mode.
+- [x] Build the beginner-facing preprocessing step with preserve-aspect selected by default and warnings for padding and crop.
+- [x] Verify originals remain byte-identical and all processed images are readable JPEGs.
 
 ### Task 4: Create Tagger Adapter Contract And Batch Runner
 

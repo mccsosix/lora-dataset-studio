@@ -39,11 +39,13 @@ describe('browser desktop API fallback', () => {
     await preloadApi.selectImageFolder()
     await preloadApi.loadProject()
     await expect(preloadApi.saveProject(project)).resolves.toEqual(project)
+    await preloadApi.prepareImages({ mode: 'preserve-aspect' })
     expect(invokedChannels).toEqual([
       'lora-studio:get-runtime-info',
       'lora-studio:select-image-folder',
       'lora-studio:load-project',
       'lora-studio:save-project',
+      'lora-studio:prepare-images',
     ])
   })
 })

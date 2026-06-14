@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import path from 'node:path'
 import type { RuntimeInfo } from '../src/desktop-api.js'
 import { registerProjectIpc } from './ipc/project.js'
+import { registerPreprocessingIpc } from './ipc/preprocessing.js'
 import { ProjectStore } from './services/project-store.js'
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
@@ -31,9 +32,9 @@ function registerImageProtocol() {
   protocol.handle('lora-image', (request) => {
     const url = new URL(request.url)
     if (url.hostname !== 'image') return new Response('Not found', { status: 404 })
-    const sourcePath = projectStore.getSourcePath(decodeURIComponent(url.pathname.slice(1)))
-    if (!sourcePath) return new Response('Not found', { status: 404 })
-    return net.fetch(pathToFileURL(sourcePath).toString())
+    const previewPath = projectStore.getPreviewPath(decodeURIComponent(url.pathname.slice(1)))
+    if (!previewPath) return new Response('Not found', { status: 404 })
+    return net.fetch(pathToFileURL(previewPath).toString())
   })
 }
 
@@ -71,6 +72,7 @@ app.whenReady().then(() => {
   projectStore = new ProjectStore(path.join(app.getPath('userData'), 'project-state.json'))
   registerDesktopIpc()
   registerProjectIpc(projectStore)
+  registerPreprocessingIpc(projectStore, app.getPath('userData'))
   registerImageProtocol()
   createMainWindow()
 

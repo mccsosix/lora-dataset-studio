@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import type { ProjectDto, ProjectImageDto } from '../../src/types/project.js'
+import type { PreprocessImageResult } from './image-preprocessor.js'
 
 const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 
@@ -9,6 +10,7 @@ type PersistedImage = Omit<ProjectImageDto, 'previewUrl'> & {
   sourcePath: string
   sourceSize: number
   sourceModifiedAt: string
+  processedPath?: string
 }
 
 type PersistedProject = Omit<ProjectDto, 'images' | 'folderName'> & {
@@ -24,11 +26,12 @@ function toImageDto(image: PersistedImage): ProjectImageDto {
   return {
     id: image.id,
     name: image.name,
-    previewUrl: `lora-image://image/${encodeURIComponent(image.id)}`,
+    previewUrl: `lora-image://image/${encodeURIComponent(image.id)}?v=${encodeURIComponent(image.preparation?.processedAt ?? image.sourceModifiedAt)}`,
     tags: image.tags.map((tag) => ({ ...tag })),
     originalTags: image.originalTags.map((tag) => ({ ...tag })),
     selected: image.selected,
     status: image.status,
+    preparation: image.preparation ? { ...image.preparation } : undefined,
   }
 }
 
@@ -114,6 +117,42 @@ export class ProjectStore {
 
   getSourcePath(imageId: string): string | undefined {
     return this.project?.images.find((image) => image.id === imageId)?.sourcePath
+  }
+
+  getPreviewPath(imageId: string): string | undefined {
+    const image = this.project?.images.find((item) => item.id === imageId)
+    return image?.processedPath ?? image?.sourcePath
+  }
+
+  getProjectId(): string | undefined {
+    return this.project?.id
+  }
+
+  getProjectImages() {
+    return this.project?.images.map((image) => ({
+      id: image.id,
+      name: image.name,
+      sourcePath: image.sourcePath,
+    })) ?? []
+  }
+
+  async savePreparationResults(results: PreprocessImageResult[]): Promise<ProjectDto> {
+    if (!this.project) throw new Error('No active project.')
+    const resultMap = new Map(results.map((result) => [result.imageId, result]))
+    this.project.images = this.project.images.map((image) => {
+      const result = resultMap.get(image.id)
+      if (!result) return image
+      const { imageId: _imageId, outputPath, ...preparation } = result
+      return {
+        ...image,
+        processedPath: outputPath,
+        preparation,
+        status: 'prepared',
+      }
+    })
+    this.project.updatedAt = new Date().toISOString()
+    await this.persist()
+    return toProjectDto(this.project)
   }
 
   private async persist() {

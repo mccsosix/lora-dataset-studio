@@ -1,4 +1,5 @@
 import type { DanbooruTag } from '../danbooru.js'
+import type { ImagePreparationDto } from './preprocessing.js'
 
 export type ProjectImageStatus = 'queued' | 'preparing' | 'prepared' | 'tagging' | 'ready' | 'failed'
 
@@ -10,6 +11,7 @@ export type ProjectImageDto = {
   originalTags: DanbooruTag[]
   selected: boolean
   status: ProjectImageStatus
+  preparation?: ImagePreparationDto
 }
 
 export type ProjectDto = {

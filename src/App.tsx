@@ -31,7 +31,10 @@ import {
   type DanbooruTag,
 } from './danbooru'
 import { getDesktopApi } from './desktop-api'
+import { PreprocessStep } from './components/PreprocessStep'
+import { countPreparedImages } from './preprocessing'
 import type { ProjectDto, ProjectImageStatus } from './types/project'
+import type { ImagePreparationDto, PreprocessMode } from './types/preprocessing'
 
 type TrainingType = 'character' | 'style' | 'concept'
 type ImageStatus = ProjectImageStatus
@@ -45,6 +48,7 @@ type DatasetImage = {
   selected: boolean
   status: ImageStatus
   local?: boolean
+  preparation?: ImagePreparationDto
 }
 
 type LocalTagResponse = {
@@ -53,6 +57,7 @@ type LocalTagResponse = {
 }
 
 const desktopApi = getDesktopApi()
+const isDesktop = Boolean(window.loraStudio)
 
 const strategies: Record<TrainingType, { label: string; description: string; trigger: string }> = {
   character: { label: '人物', description: '让模型记住一个人物，同时保留不同服装与场景。', trigger: 'ohwx_person' },
@@ -113,6 +118,8 @@ function App() {
   const [search, setSearch] = useState('')
   const [newTag, setNewTag] = useState('')
   const [isTagging, setIsTagging] = useState(false)
+  const [isPreparing, setIsPreparing] = useState(false)
+  const [preprocessMode, setPreprocessMode] = useState<PreprocessMode>('preserve-aspect')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [threshold, setThreshold] = useState(.35)
   const [notice, setNotice] = useState('暗房已准备好')
@@ -129,6 +136,7 @@ function App() {
   const activeImage = images.find((image) => image.id === activeId) ?? images[0]
   const selectedCount = images.reduce((count, image) => count + Number(image.selected), 0)
   const taggedCount = images.reduce((count, image) => count + Number(image.tags.length > 0), 0)
+  const preparedCount = countPreparedImages(images)
   const visibleImages = useMemo(() => {
     const query = normalizeDanbooruTag(deferredSearch)
     if (!query) return images
@@ -149,6 +157,7 @@ function App() {
       selected: image.selected,
       status: image.status,
       local: true,
+      preparation: image.preparation,
     }))
     startTransition(() => setImages(projectImages))
     setActiveId(projectImages[0]?.id ?? '')
@@ -192,6 +201,24 @@ function App() {
     }
   }
 
+  const prepareImages = async () => {
+    if (!currentProject || !images.length) {
+      setNotice('请先选择图片文件夹')
+      return
+    }
+    setIsPreparing(true)
+    setNotice(`正在准备 ${images.length} 张训练图片…`)
+    try {
+      const project = await desktopApi.prepareImages({ mode: preprocessMode })
+      applyProject(project)
+      setNotice(`图片已准备完成：${project.images.length} 张 · ${preprocessMode}`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '图片准备失败')
+    } finally {
+      setIsPreparing(false)
+    }
+  }
+
   useEffect(() => {
     if (view === 'workspace' && !hasLoadedLocalFolder) void loadProject()
   }, [view, hasLoadedLocalFolder])
@@ -208,6 +235,7 @@ function App() {
         originalTags: image.originalTags,
         selected: image.selected,
         status: image.status,
+        preparation: image.preparation,
       })),
     }
     const saveTimer = window.setTimeout(() => {
@@ -240,6 +268,10 @@ function App() {
     const localTargets = targets.filter((image) => image.local)
     if (localTargets.length !== targets.length) {
       setNotice('当前真实打标仅支持从本地文件夹读取的图片')
+      return
+    }
+    if (isDesktop && targets.some((image) => !image.preparation)) {
+      setNotice('请先准备训练图片，再生成标签')
       return
     }
     setIsTagging(true)
@@ -445,11 +477,20 @@ function App() {
           <div className="ambient ambient-one" /><div className="ambient ambient-two" />
           <div className="table-heading">
             <div><span className="table-kicker">数字灯箱</span><h1>选择图片，然后让模型帮你写标签。</h1></div>
-            <button className="generate-button" type="button" disabled={isTagging} onClick={runTagging}>
+            <button className="generate-button" type="button" disabled={isTagging || isPreparing} onClick={runTagging}>
               {isTagging ? <LoaderCircle className="spin" size={19} /> : <WandSparkles size={19} />}
               <span><strong>{isTagging ? '正在读取图片…' : selectedCount ? `为选中的 ${selectedCount} 张生成标签` : '为全部图片生成标签'}</strong><small>{isTagging ? '图片会依次亮起' : '生成后只需简单检查'}</small></span>
             </button>
           </div>
+
+          <PreprocessStep
+            mode={preprocessMode}
+            totalCount={images.length}
+            preparedCount={preparedCount}
+            isPreparing={isPreparing}
+            onModeChange={setPreprocessMode}
+            onPrepare={prepareImages}
+          />
 
           <div className="goal-tabs" aria-label="训练目标">
             <span>我想训练</span>
