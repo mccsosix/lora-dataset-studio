@@ -30,9 +30,11 @@ import {
   serializeDanbooruTags,
   type DanbooruTag,
 } from './danbooru'
+import { getDesktopApi } from './desktop-api'
+import type { ProjectDto, ProjectImageStatus } from './types/project'
 
 type TrainingType = 'character' | 'style' | 'concept'
-type ImageStatus = 'ready' | 'queued' | 'tagging'
+type ImageStatus = ProjectImageStatus
 
 type DatasetImage = {
   id: string
@@ -45,16 +47,12 @@ type DatasetImage = {
   local?: boolean
 }
 
-type LocalImageResponse = {
-  folderName: string
-  provider: string
-  images: Array<{ id: string; name: string; url: string }>
-}
-
 type LocalTagResponse = {
   provider: string
   results: Array<{ name: string; tags: DanbooruTag[] }>
 }
+
+const desktopApi = getDesktopApi()
 
 const strategies: Record<TrainingType, { label: string; description: string; trigger: string }> = {
   character: { label: '人物', description: '让模型记住一个人物，同时保留不同服装与场景。', trigger: 'ohwx_person' },
@@ -120,6 +118,7 @@ function App() {
   const [notice, setNotice] = useState('暗房已准备好')
   const [localFolderName, setLocalFolderName] = useState('')
   const [hasLoadedLocalFolder, setHasLoadedLocalFolder] = useState(false)
+  const [currentProject, setCurrentProject] = useState<ProjectDto | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const noiseSourceRef = useRef<AudioBufferSourceNode | null>(null)
@@ -140,33 +139,84 @@ function App() {
     setImages((current) => current.map((image) => image.id === id ? { ...image, ...patch } : image))
   }
 
-  const loadLocalFolder = async () => {
-    setNotice('正在读取本地图片文件夹…')
+  const applyProject = (project: ProjectDto) => {
+    const projectImages: DatasetImage[] = project.images.map((image) => ({
+      id: image.id,
+      name: image.name,
+      url: image.previewUrl,
+      tags: image.tags,
+      originalTags: image.originalTags,
+      selected: image.selected,
+      status: image.status,
+      local: true,
+    }))
+    startTransition(() => setImages(projectImages))
+    setActiveId(projectImages[0]?.id ?? '')
+    setLocalFolderName(project.folderName)
+    setCurrentProject(project)
+    setHasLoadedLocalFolder(true)
+  }
+
+  const loadProject = async () => {
+    setNotice('正在恢复本地项目…')
     try {
-      const response = await fetch('/api/local-images')
-      const data = await response.json() as LocalImageResponse & { error?: string }
-      if (!response.ok) throw new Error(data.error || '无法读取本地图片文件夹')
-      const localImages: DatasetImage[] = data.images.map((image, index) => ({
-        ...image,
-        tags: [],
-        originalTags: [],
-        selected: index === 0,
-        status: 'queued',
-        local: true,
-      }))
-      startTransition(() => setImages(localImages))
-      setActiveId(localImages[0]?.id ?? '')
-      setLocalFolderName(data.folderName)
+      const project = await desktopApi.loadProject()
+      if (!project) {
+        setImages([])
+        setActiveId('')
+        setLocalFolderName('')
+        setHasLoadedLocalFolder(true)
+        setNotice('请选择一个图片文件夹开始')
+        return
+      }
+      applyProject(project)
+      setNotice(`已恢复 ${project.folderName} 中 ${project.images.length} 张图片`)
+    } catch (error) {
       setHasLoadedLocalFolder(true)
-      setNotice(`已从 ${data.folderName} 读取 ${localImages.length} 张图片`)
+      setNotice(error instanceof Error ? error.message : '无法恢复本地项目')
+    }
+  }
+
+  const selectImageFolder = async () => {
+    setNotice('请选择包含训练图片的文件夹…')
+    try {
+      const project = await desktopApi.selectImageFolder()
+      if (!project) {
+        setNotice('已取消选择')
+        return
+      }
+      applyProject(project)
+      setNotice(`已从 ${project.folderName} 读取 ${project.images.length} 张图片`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '无法读取本地图片文件夹')
     }
   }
 
   useEffect(() => {
-    if (view === 'workspace' && !hasLoadedLocalFolder) void loadLocalFolder()
+    if (view === 'workspace' && !hasLoadedLocalFolder) void loadProject()
   }, [view, hasLoadedLocalFolder])
+
+  useEffect(() => {
+    if (!currentProject || !hasLoadedLocalFolder) return
+    const project: ProjectDto = {
+      ...currentProject,
+      images: images.filter((image) => image.local).map((image) => ({
+        id: image.id,
+        name: image.name,
+        previewUrl: image.url,
+        tags: image.tags,
+        originalTags: image.originalTags,
+        selected: image.selected,
+        status: image.status,
+      })),
+    }
+    const saveTimer = window.setTimeout(() => {
+      void desktopApi.saveProject(project).catch((error) => {
+        setNotice(error instanceof Error ? error.message : '无法保存项目')
+      })
+    }, 350)
+    return () => window.clearTimeout(saveTimer)
+  }, [images, currentProject?.id, hasLoadedLocalFolder])
 
   const handleFiles = (files: FileList | null) => {
     if (!files) return
@@ -386,7 +436,7 @@ function App() {
         <div className="lightroom-toolbar">
           <div className="project-title"><span>当前项目</span><strong>{localFolderName ? `本地文件夹：${localFolderName}` : '人物练习集'}</strong><em>{images.length} 张图片 · {taggedCount} 张已完成</em></div>
           <label className="search" htmlFor="search"><Search size={18} /><input id="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索图片或标签" /></label>
-          <button className="quiet-button folder-button" type="button" disabled={isTagging} onClick={loadLocalFolder}><FolderOpen size={18} />重新读取文件夹</button>
+          <button className="quiet-button folder-button" type="button" disabled={isTagging} onClick={selectImageFolder}><FolderOpen size={18} />选择图片文件夹</button>
           <button className="quiet-button" type="button" onClick={() => fileInput.current?.click()}><ImagePlus size={18} />添加图片</button>
           <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => handleFiles(event.target.files)} />
         </div>

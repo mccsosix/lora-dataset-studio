@@ -39,11 +39,11 @@
 - Modify: `src/App.tsx`
 - Test: `tests/project-store.test.ts`
 
-- [ ] Write failing tests that a created project stores image metadata without modifying source images and strips unrestricted paths from renderer DTOs.
-- [ ] Implement native folder selection and project-state persistence under Electron `userData`.
-- [ ] Add preload methods `selectImageFolder`, `loadProject`, and `saveProject`.
-- [ ] Replace Vite-only local-folder APIs in the renderer with the desktop API while retaining a development fallback.
-- [ ] Verify reopening the application restores image list and editing state.
+- [x] Write failing tests that a created project stores image metadata without modifying source images and strips unrestricted paths from renderer DTOs.
+- [x] Implement native folder selection and project-state persistence under Electron `userData`.
+- [x] Add preload methods `selectImageFolder`, `loadProject`, and `saveProject`.
+- [x] Replace Vite-only local-folder APIs in the renderer with the desktop API while retaining a development fallback.
+- [x] Verify reopening the application restores image list and editing state.
 
 ### Task 3: Implement Image Preprocessing Modes
 

@@ -19,16 +19,31 @@ describe('browser desktop API fallback', () => {
 
   it('builds the preload bridge from the same safe contract', async () => {
     const invokedChannels: string[] = []
-    const preloadApi = createDesktopApi(async (channel) => {
+    const preloadApi = createDesktopApi(async (channel, value) => {
       invokedChannels.push(channel)
+      if (value) return value
       return { environment: 'electron', platform: 'win32' }
     })
+    const project = {
+      id: 'project',
+      folderName: 'images',
+      images: [],
+      updatedAt: '2026-06-14T00:00:00.000Z',
+    }
 
     expect(Object.keys(preloadApi).sort()).toEqual([...desktopApiMethodNames].sort())
     await expect(preloadApi.getRuntimeInfo()).resolves.toEqual({
       environment: 'electron',
       platform: 'win32',
     })
-    expect(invokedChannels).toEqual(['lora-studio:get-runtime-info'])
+    await preloadApi.selectImageFolder()
+    await preloadApi.loadProject()
+    await expect(preloadApi.saveProject(project)).resolves.toEqual(project)
+    expect(invokedChannels).toEqual([
+      'lora-studio:get-runtime-info',
+      'lora-studio:select-image-folder',
+      'lora-studio:load-project',
+      'lora-studio:save-project',
+    ])
   })
 })
