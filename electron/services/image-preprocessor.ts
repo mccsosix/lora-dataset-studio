@@ -6,6 +6,7 @@ import type {
   ImagePreparationDto,
   PreprocessSettings,
 } from '../../src/types/preprocessing.js'
+import type { TextRemovalResult } from '../../src/types/text-removal.js'
 
 const defaultSettings = {
   targetArea: 1024 * 1024,
@@ -14,11 +15,13 @@ const defaultSettings = {
   maximumSide: 2048,
   allowUpscale: false,
   background: { r: 255, g: 255, b: 255 },
-} satisfies Required<Omit<PreprocessSettings, 'mode'>>
+} satisfies Required<Omit<PreprocessSettings, 'mode' | 'textRemoval' | 'imageIds'>>
 
 export type PreprocessImageRequest = {
   imageId: string
   sourcePath: string
+  workingSourcePath?: string
+  textRemovalResult?: TextRemovalResult
   outputDirectory: string
   settings: PreprocessSettings
 }
@@ -28,19 +31,25 @@ export type PreprocessImageResult = ImagePreparationDto & {
   outputPath: string
 }
 
+export type PreprocessImageFailure = {
+  imageId: string
+  error: string
+}
+
 export async function preprocessImage(request: PreprocessImageRequest): Promise<PreprocessImageResult> {
   const options = { ...defaultSettings, ...request.settings }
-  const metadata = await sharp(request.sourcePath).metadata()
+  const inputPath = request.workingSourcePath ?? request.sourcePath
+  const metadata = await sharp(inputPath).metadata()
   const originalWidth = metadata.autoOrient?.width ?? metadata.width
   const originalHeight = metadata.autoOrient?.height ?? metadata.height
-  if (!originalWidth || !originalHeight) throw new Error(`Unable to read image dimensions: ${basename(request.sourcePath)}`)
+  if (!originalWidth || !originalHeight) throw new Error(`Unable to read image dimensions: ${basename(inputPath)}`)
 
   const outputDimensions = calculateOutputGeometry(originalWidth, originalHeight, request.settings)
   const outputFilename = `${basename(request.sourcePath, extname(request.sourcePath))}.jpg`
   const outputPath = join(request.outputDirectory, outputFilename)
   await mkdir(request.outputDirectory, { recursive: true })
 
-  const image = sharp(request.sourcePath)
+  const image = sharp(inputPath)
     .rotate()
     .flatten({ background: options.background })
     .toColourspace('srgb')
@@ -72,6 +81,14 @@ export async function preprocessImage(request: PreprocessImageRequest): Promise<
     originalDimensions: { width: originalWidth, height: originalHeight },
     outputDimensions,
     outputFilename,
+    textRemoval: request.textRemovalResult ? {
+      imageId: request.textRemovalResult.imageId,
+      cleanedFilename: request.textRemovalResult.cleanedFilename,
+      regionCount: request.textRemovalResult.regionCount,
+      adapterId: request.textRemovalResult.adapterId,
+      fallbackReason: request.textRemovalResult.fallbackReason,
+      processedAt: request.textRemovalResult.processedAt,
+    } : undefined,
     outputPath,
     processedAt: new Date().toISOString(),
   }

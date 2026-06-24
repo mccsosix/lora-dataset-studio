@@ -37,9 +37,20 @@ import { ImageLightbox } from './components/ImageLightbox'
 import { PreprocessStep } from './components/PreprocessStep'
 import { createBrowserDatasetImages, prepareBrowserProjectImages } from './browser-image-preprocessor'
 import { countPreparedImages } from './preprocessing'
+import { getTextRemovalPrepareBlockReason } from './text-removal-availability'
+import {
+  clearAutoTextRegionsForImages,
+  cloneTextRegionsForImages,
+  countAutoTextRegionsForImages,
+  countTextRegionsForImages,
+  finalizeDraftTextRegion,
+  pickTextRegionsForImages,
+} from './text-regions'
 import type { ProjectDto, ProjectImageStatus } from './types/project'
 import type { ImagePreparationDto, PreprocessMode } from './types/preprocessing'
 import type { ModelDownloadProgress, ModelStatus } from './types/model'
+import type { TextRemovalEngineStatus, TextRegion } from './types/text-removal'
+import type { BatchProgressEvent } from './types/tagging'
 
 type TrainingType = 'character' | 'style' | 'concept'
 type ImageStatus = ProjectImageStatus
@@ -53,8 +64,23 @@ type DatasetImage = {
   originalTags: DanbooruTag[]
   selected: boolean
   status: ImageStatus
+  error?: string
   local?: boolean
   preparation?: ImagePreparationDto
+}
+
+type PreprocessCompletionItem = {
+  imageId: string
+  name: string
+  status: 'cleaned' | 'prepared' | 'skipped' | 'failed'
+  detail: string
+}
+
+type PreprocessPendingItem = {
+  imageId: string
+  name: string
+  status: 'will-clean' | 'skipped'
+  detail: string
 }
 
 type LocalTagResponse = {
@@ -132,7 +158,15 @@ function App() {
   const [newTag, setNewTag] = useState('')
   const [isTagging, setIsTagging] = useState(false)
   const [isPreparing, setIsPreparing] = useState(false)
+  const [isDetectingTextRegions, setIsDetectingTextRegions] = useState(false)
+  const [preprocessProgress, setPreprocessProgress] = useState<BatchProgressEvent | null>(null)
+  const [preprocessCompletionMessage, setPreprocessCompletionMessage] = useState('')
+  const [preprocessCompletionItems, setPreprocessCompletionItems] = useState<PreprocessCompletionItem[]>([])
   const [preprocessMode, setPreprocessMode] = useState<PreprocessMode>('preserve-aspect')
+  const [batchScope, setBatchScope] = useState<'all' | 'selected'>('all')
+  const [textRemovalEnabled, setTextRemovalEnabled] = useState(false)
+  const [manualTextRegions, setManualTextRegions] = useState<Record<string, TextRegion[]>>({})
+  const [draftRegion, setDraftRegion] = useState<TextRegion | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [threshold, setThreshold] = useState(.35)
   const [notice, setNotice] = useState('暗房已准备好')
@@ -140,9 +174,11 @@ function App() {
   const [hasLoadedLocalFolder, setHasLoadedLocalFolder] = useState(false)
   const [currentProject, setCurrentProject] = useState<ProjectDto | null>(null)
   const [modelStatus, setModelStatus] = useState<ModelStatus>(unavailableModelStatus)
+  const [textRemovalStatus, setTextRemovalStatus] = useState<TextRemovalEngineStatus | undefined>()
+  const [isCheckingTextRemovalStatus, setIsCheckingTextRemovalStatus] = useState(false)
   const [modelProgress, setModelProgress] = useState<ModelDownloadProgress | null>(null)
   const [isManagingModel, setIsManagingModel] = useState(false)
-  const [lightboxImage, setLightboxImage] = useState<{ name: string; url: string } | null>(null)
+  const [lightboxImage, setLightboxImage] = useState<{ id: string; name: string; url: string } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -152,14 +188,52 @@ function App() {
   const deferredSearch = useDeferredValue(search)
 
   const activeImage = images.find((image) => image.id === activeId) ?? images[0]
+  const activeTextRegions = activeImage ? (manualTextRegions[activeImage.id] ?? []) : []
   const selectedCount = images.reduce((count, image) => count + Number(image.selected), 0)
   const taggedCount = images.reduce((count, image) => count + Number(image.tags.length > 0), 0)
   const preparedCount = countPreparedImages(images)
+  const lightboxPrepareBlockReason = lightboxImage && textRemovalEnabled
+    ? (!images.length || (isDesktop && !currentProject)
+      ? '请先选择图片文件夹。'
+      : !isDesktop && images.some((image) => !image.sourceUrl)
+        ? '请先导入真实图片；示例图片不能进行网页图片处理。'
+        : getTextRemovalPrepareBlockReason({
+          isDesktop,
+          textRemovalEnabled,
+          manualRegionCount: manualTextRegions[lightboxImage.id]?.length ?? 0,
+        }))
+    : null
   const visibleImages = useMemo(() => {
     const query = normalizeDanbooruTag(deferredSearch)
     if (!query) return images
     return images.filter((image) => image.name.toLowerCase().includes(query) || image.tags.some((tag) => tag.name.includes(query)))
   }, [images, deferredSearch])
+
+  const getBatchTargetImages = () => {
+    return batchScope === 'selected' ? images.filter((image) => image.selected) : images
+  }
+  const batchTargetImageIds = getBatchTargetImages().map((image) => image.id)
+  const targetManualRegionCount = countTextRegionsForImages(manualTextRegions, batchTargetImageIds)
+  const targetAutoRegionCount = countAutoTextRegionsForImages(manualTextRegions, batchTargetImageIds)
+  const preprocessPendingItems: PreprocessPendingItem[] = textRemovalEnabled
+    ? getBatchTargetImages().map((image) => {
+      const regionCount = manualTextRegions[image.id]?.length ?? 0
+      return {
+        imageId: image.id,
+        name: image.name,
+        status: regionCount > 0 ? 'will-clean' : 'skipped',
+        detail: regionCount > 0 ? `${regionCount} 个区域待处理` : '未框选区域',
+      }
+    })
+    : []
+
+  useEffect(() => {
+    if (!lightboxImage) return
+    const updatedImage = images.find((image) => image.id === lightboxImage.id)
+    if (updatedImage?.url && updatedImage.url !== lightboxImage.url) {
+      setLightboxImage({ id: updatedImage.id, name: updatedImage.name, url: updatedImage.url })
+    }
+  }, [images, lightboxImage])
 
   const updateImage = (id: string, patch: Partial<DatasetImage>) => {
     setImages((current) => current.map((image) => image.id === id ? { ...image, ...patch } : image))
@@ -175,11 +249,12 @@ function App() {
       originalTags: image.originalTags,
       selected: image.selected,
       status: image.status,
+      error: image.error,
       local: true,
       preparation: image.preparation,
     }))
     startTransition(() => setImages(projectImages))
-    setActiveId(projectImages[0]?.id ?? '')
+    setActiveId((current) => projectImages.some((image) => image.id === current) ? current : projectImages[0]?.id ?? '')
     setLocalFolderName(project.folderName)
     setCurrentProject(project)
     setHasLoadedLocalFolder(true)
@@ -220,17 +295,42 @@ function App() {
     }
   }
 
-  const prepareImages = async () => {
+  const prepareImages = async (manualRegionsOverride?: Record<string, TextRegion[]>) => {
+    const manualRegionsForPrepare = manualRegionsOverride ?? manualTextRegions
+    const targetImages = getBatchTargetImages()
+    const targetImageIds = targetImages.map((image) => image.id)
+    const targetManualRegions = pickTextRegionsForImages(manualRegionsForPrepare, targetImageIds)
+    const manualRegionCountForPrepare = countTextRegionsForImages(manualRegionsForPrepare, targetImageIds)
     if (!images.length || (isDesktop && !currentProject)) {
-      setNotice('请先选择图片文件夹')
-      return
+      const message = '请先选择图片文件夹'
+      setNotice(message)
+      return message
+    }
+    if (!targetImageIds.length) {
+      const message = '请先勾选要批量处理的图片，或把处理范围改为全部图片'
+      setNotice(message)
+      return message
     }
     if (!isDesktop && images.some((image) => !image.sourceUrl)) {
-      setNotice('请先导入真实图片，再进行网页图片处理')
-      return
+      const message = '请先导入真实图片，再进行网页图片处理'
+      setNotice(message)
+      return message
+    }
+    const textRemovalBlockReason = getTextRemovalPrepareBlockReason({
+      isDesktop,
+      textRemovalEnabled,
+      manualRegionCount: manualRegionCountForPrepare,
+    })
+    if (textRemovalBlockReason) {
+      setNotice(textRemovalBlockReason)
+      return textRemovalBlockReason
     }
     setIsPreparing(true)
-    setNotice(`正在准备 ${images.length} 张训练图片…`)
+    setPreprocessCompletionMessage('')
+    setPreprocessCompletionItems([])
+    setPreprocessProgress({ phase: 'prepare', imageId: '', status: 'preparing', completed: 0, total: targetImageIds.length })
+    const preparingMessage = `正在准备 ${targetImageIds.length} 张训练图片…`
+    setNotice(preparingMessage)
     try {
       if (!isDesktop) {
         const preparedImages = await prepareBrowserProjectImages(
@@ -243,16 +343,221 @@ function App() {
           if (image.url.startsWith('blob:') && image.url !== image.sourceUrl) URL.revokeObjectURL(image.url)
         })
         setImages(preparedImages)
-        setNotice(`网页图片已准备完成：${preparedImages.length} 张 · ${preprocessMode}`)
-        return
+        const message = `网页图片已准备完成：${preparedImages.length} 张 · ${preprocessMode}`
+        setNotice(message)
+        return message
       }
-      const project = await desktopApi.prepareImages({ mode: preprocessMode })
+      const project = await desktopApi.prepareImages({
+        mode: preprocessMode,
+        imageIds: targetImageIds,
+        textRemoval: textRemovalEnabled ? {
+          mode: 'manual',
+          maskPadding: 8,
+          manualRegionsByImageId: targetManualRegions,
+        } : { mode: 'off' },
+      })
       applyProject(project)
-      setNotice(`图片已准备完成：${project.images.length} 张 · ${preprocessMode}`)
+      const targetIdSet = new Set(targetImageIds)
+      const targetProjectImages = project.images.filter((image) => targetIdSet.has(image.id))
+      const targetRegionCounts = new Map(targetImageIds.map((imageId) => [imageId, targetManualRegions[imageId]?.length ?? 0]))
+      const completionItems: PreprocessCompletionItem[] = targetProjectImages.map((image) => {
+        if (image.status === 'failed') {
+          return { imageId: image.id, name: image.name, status: 'failed', detail: image.error ?? '处理失败' }
+        }
+        if (image.preparation?.textRemoval) {
+          return {
+            imageId: image.id,
+            name: image.name,
+            status: 'cleaned',
+            detail: `${image.preparation.textRemoval.regionCount} 个区域 · ${image.preparation.textRemoval.fallbackReason ? '快速修复' : 'LaMA'}`,
+          }
+        }
+        if (textRemovalEnabled && (targetRegionCounts.get(image.id) ?? 0) === 0) {
+          return { imageId: image.id, name: image.name, status: 'skipped', detail: '未框选区域' }
+        }
+        return {
+          imageId: image.id,
+          name: image.name,
+          status: 'prepared',
+          detail: image.preparation ? `${image.preparation.outputDimensions.width}×${image.preparation.outputDimensions.height}` : '已准备',
+        }
+      })
+      setPreprocessCompletionItems(completionItems)
+      const failedImages = targetProjectImages.filter((image) => image.status === 'failed')
+      if (failedImages.length) {
+        const firstFailure = failedImages[0]
+        const message = `${failedImages.length} 张图片准备失败：${firstFailure.name}${firstFailure.error ? ` · ${firstFailure.error}` : ''}`
+        setNotice(message)
+        return message
+      }
+      if (textRemovalEnabled && manualRegionCountForPrepare > 0 && !targetProjectImages.some((image) => image.preparation?.textRemoval)) {
+        const message = '图片已准备，但去水印没有执行：没有在返回结果中发现 LaMA 修复记录。请重新打开当前图确认区域还在。'
+        setNotice(message)
+        setPreprocessCompletionMessage(message)
+        return message
+      }
+      const textRemovalImages = targetProjectImages.filter((image) => image.preparation?.textRemoval)
+      const textRemovalRegionCount = textRemovalImages.reduce((count, image) => count + (image.preparation?.textRemoval?.regionCount ?? 0), 0)
+      const textRemovalAdapters = new Set(textRemovalImages.map((image) => image.preparation?.textRemoval?.fallbackReason ? '快速修复' : 'LaMA'))
+      let textRemovalSummaryMessage = ''
+      if (textRemovalImages.length) {
+        const adapterLabel = textRemovalAdapters.size > 1 ? 'LaMA / 快速修复' : [...textRemovalAdapters][0]
+        textRemovalSummaryMessage = `去水印完成：${textRemovalImages.length} 张图片 · ${textRemovalRegionCount} 个区域已用 ${adapterLabel} 处理。`
+        setNotice(textRemovalSummaryMessage)
+        setPreprocessCompletionMessage(textRemovalSummaryMessage)
+      }
+      const preparedLightboxImage = lightboxImage ? project.images.find((image) => image.id === lightboxImage.id) : undefined
+      if (preparedLightboxImage?.preparation?.textRemoval) {
+        const removal = preparedLightboxImage.preparation.textRemoval
+        const message = `当前图已用 ${removal.adapterId === 'iopaint-lama' ? 'LaMA' : removal.adapterId} 处理 ${removal.regionCount} 个区域。`
+        setNotice(message)
+        setPreprocessCompletionMessage(message)
+        return message
+      }
+      if (textRemovalImages.length) {
+        setNotice(textRemovalSummaryMessage)
+        setPreprocessCompletionMessage(textRemovalSummaryMessage)
+        return textRemovalSummaryMessage
+      }
+      const message = `图片已准备完成：${targetImageIds.length} 张 · ${preprocessMode}`
+      setNotice(message)
+      setPreprocessCompletionMessage(message)
+      return message
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '图片准备失败')
+      const message = error instanceof Error ? error.message : '图片准备失败'
+      setNotice(message)
+      return message
     } finally {
       setIsPreparing(false)
+      setPreprocessProgress(null)
+    }
+  }
+
+  const beginTextRegion = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!activeImage || !textRemovalEnabled) return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const x = (event.clientX - bounds.left) / bounds.width
+    const y = (event.clientY - bounds.top) / bounds.height
+    const region = { id: `${activeImage.id}-${Date.now()}`, box: { x, y, width: 0, height: 0 }, confidence: 1 }
+    setDraftRegion(region)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const updateTextRegion = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!activeImage || !draftRegion?.box || !textRemovalEnabled) return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const x = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width))
+    const y = Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height))
+    setDraftRegion({
+      ...draftRegion,
+      box: {
+        x: Math.min(draftRegion.box.x, x),
+        y: Math.min(draftRegion.box.y, y),
+        width: Math.abs(x - draftRegion.box.x),
+        height: Math.abs(y - draftRegion.box.y),
+      },
+    })
+  }
+
+  const commitTextRegion = () => {
+    if (!activeImage || !draftRegion?.box) {
+      setDraftRegion(null)
+      return
+    }
+    const finalizedRegion = finalizeDraftTextRegion(activeImage.id, draftRegion, `${activeImage.id}-${Date.now()}-click`)
+    if (!finalizedRegion) {
+      setDraftRegion(null)
+      return
+    }
+    setManualTextRegions((current) => ({
+      ...current,
+      [activeImage.id]: [...(current[activeImage.id] ?? []), finalizedRegion],
+    }))
+    setDraftRegion(null)
+  }
+
+  const addTextRegion = (imageId: string, region: TextRegion) => {
+    setManualTextRegions((current) => ({
+      ...current,
+      [imageId]: [...(current[imageId] ?? []), region],
+    }))
+  }
+
+  const removeTextRegion = (imageId: string, regionId: string) => {
+    setManualTextRegions((current) => ({
+      ...current,
+      [imageId]: (current[imageId] ?? []).filter((region) => region.id !== regionId),
+    }))
+  }
+
+  const clearActiveTextRegions = () => {
+    if (!activeImage) return
+    setManualTextRegions((current) => ({ ...current, [activeImage.id]: [] }))
+  }
+
+  const clearBatchAutoTextRegions = () => {
+    const clearedCount = countAutoTextRegionsForImages(manualTextRegions, batchTargetImageIds)
+    if (!clearedCount) {
+      setNotice('当前处理范围里没有自动检测框。')
+      return
+    }
+    setManualTextRegions((current) => clearAutoTextRegionsForImages(current, batchTargetImageIds))
+    setPreprocessCompletionMessage('')
+    setPreprocessCompletionItems([])
+    setNotice(`已清空当前处理范围内 ${clearedCount} 个自动检测框。`)
+  }
+
+  const applyActiveTextRegionsToBatch = () => {
+    if (!activeImage || activeTextRegions.length === 0) {
+      setNotice('当前图还没有文字 / 水印框。')
+      return
+    }
+    if (!batchTargetImageIds.length) {
+      setNotice('当前处理范围里没有图片。')
+      return
+    }
+    const clonedRegions = cloneTextRegionsForImages(activeTextRegions, batchTargetImageIds, String(Date.now()))
+    setManualTextRegions((current) => ({
+      ...current,
+      ...clonedRegions,
+    }))
+    setPreprocessCompletionMessage('')
+    setPreprocessCompletionItems([])
+    setNotice(`已把当前图 ${activeTextRegions.length} 个区域套用到 ${batchTargetImageIds.length} 张图片。`)
+  }
+
+  const autoDetectTextRegions = async () => {
+    if (!textRemovalEnabled) {
+      setNotice('请先开启 Remove text / watermark。')
+      return
+    }
+    setIsDetectingTextRegions(true)
+    const targetImages = getBatchTargetImages()
+    const targetImageIds = targetImages.map((image) => image.id)
+    if (!targetImageIds.length) {
+      setNotice('请先勾选要自动检测的图片，或把处理范围改为全部图片。')
+      setIsDetectingTextRegions(false)
+      return
+    }
+    setPreprocessProgress({ phase: 'detect-text', imageId: '', status: 'preparing', completed: 0, total: targetImageIds.length })
+    setNotice(`正在自动检测 ${targetImageIds.length} 张图片的水印 / 文字区域…`)
+    try {
+      const detectedRegions = await desktopApi.detectTextRegions(targetImageIds)
+      const detectedCount = Object.values(detectedRegions).reduce((count, regions) => count + regions.length, 0)
+      setManualTextRegions((current) => {
+        const next = { ...current }
+        for (const [imageId, regions] of Object.entries(detectedRegions)) {
+          const manualRegions = (next[imageId] ?? []).filter((region) => !region.id.includes('-auto-'))
+          next[imageId] = [...manualRegions, ...regions]
+        }
+        return next
+      })
+      setNotice(detectedCount ? `已在 ${targetImageIds.length} 张图片中检测到 ${detectedCount} 个候选区域，可逐张检查后准备图片。` : '没有检测到明显的边角文字 / 水印区域，可手动框选。')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '批量自动检测失败')
+    } finally {
+      setIsDetectingTextRegions(false)
+      setPreprocessProgress(null)
     }
   }
 
@@ -261,6 +566,11 @@ function App() {
   }, [view, hasLoadedLocalFolder])
 
   useEffect(() => desktopApi.onBatchProgress((event) => {
+    if (event.phase === 'prepare' || event.phase === 'detect-text') {
+      setPreprocessProgress(event)
+      setNotice(`${event.phase === 'detect-text' ? '自动检测' : '准备图片'} ${event.completed} / ${event.total}${event.fileName ? ` · ${event.fileName}` : ''}`)
+      return
+    }
     setImages((current) => current.map((image) => image.id === event.imageId
       ? { ...image, status: event.status }
       : image))
@@ -270,6 +580,14 @@ function App() {
   useEffect(() => {
     void desktopApi.getModelStatus().then(setModelStatus).catch((error) => {
       setNotice(error instanceof Error ? error.message : '无法读取本地模型状态')
+    })
+    void desktopApi.getTextRemovalStatus().then(setTextRemovalStatus).catch(() => {
+      setTextRemovalStatus({
+        state: 'fallback',
+        adapterId: 'local-sharp-inpaint',
+        label: '快速修复',
+        detail: '无法读取 LaMA 修复状态。',
+      })
     })
     return desktopApi.onModelProgress(setModelProgress)
   }, [])
@@ -313,6 +631,19 @@ function App() {
       setNotice(error instanceof Error ? error.message : '无法使用所选模型目录')
     } finally {
       setIsManagingModel(false)
+    }
+  }
+
+  const refreshTextRemovalStatus = async () => {
+    setIsCheckingTextRemovalStatus(true)
+    try {
+      const status = await desktopApi.getTextRemovalStatus()
+      setTextRemovalStatus(status)
+      setNotice(status.state === 'ready' ? 'LaMA 去水印已可用' : status.detail)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '无法重新检查 LaMA 去水印状态')
+    } finally {
+      setIsCheckingTextRemovalStatus(false)
     }
   }
 
@@ -423,7 +754,17 @@ function App() {
 
   const exportDataset = async () => {
     const zip = new JSZip()
-    images.forEach((image) => zip.file(`${image.name.replace(/\.[^.]+$/, '')}.txt`, serializeDanbooruTags(image.tags)))
+    for (const image of images) {
+      const baseName = image.name.replace(/\.[^.]+$/, '')
+      zip.file(`${baseName}.txt`, serializeDanbooruTags(image.tags))
+      if (image.url) {
+        const response = await fetch(image.url)
+        if (response.ok) {
+          const imageBlob = await response.blob()
+          zip.file(image.preparation?.outputFilename ?? `${baseName}.jpg`, imageBlob)
+        }
+      }
+    }
     zip.file('dataset-settings.json', JSON.stringify({ format: 'danbooru', trainingType, threshold, triggerWord: strategies[trainingType].trigger, imageCount: images.length }, null, 2))
     const blob = await zip.generateAsync({ type: 'blob' })
     const url = URL.createObjectURL(blob)
@@ -589,9 +930,33 @@ function App() {
           <PreprocessStep
             mode={preprocessMode}
             totalCount={images.length}
+            selectedCount={selectedCount}
+            batchScope={batchScope}
             preparedCount={preparedCount}
             isPreparing={isPreparing}
+            isDetectingTextRegions={isDetectingTextRegions}
+            batchProgress={preprocessProgress?.phase === 'prepare' || preprocessProgress?.phase === 'detect-text' ? {
+              phase: preprocessProgress.phase,
+              completed: preprocessProgress.completed,
+              total: preprocessProgress.total,
+              fileName: preprocessProgress.fileName,
+            } : null}
+            completionMessage={preprocessCompletionMessage}
+            completionItems={preprocessCompletionItems}
+            pendingItems={preprocessPendingItems}
+            textRemovalEnabled={textRemovalEnabled}
+            manualRegionCount={targetManualRegionCount}
+            autoRegionCount={targetAutoRegionCount}
+            activeRegionCount={activeTextRegions.length}
+            textRemovalStatus={textRemovalStatus}
+            isCheckingTextRemovalStatus={isCheckingTextRemovalStatus}
             onModeChange={setPreprocessMode}
+            onBatchScopeChange={setBatchScope}
+            onTextRemovalChange={setTextRemovalEnabled}
+            onAutoDetectTextRegions={() => void autoDetectTextRegions()}
+            onClearAutoTextRegions={clearBatchAutoTextRegions}
+            onApplyActiveTextRegionsToBatch={applyActiveTextRegionsToBatch}
+            onRefreshTextRemovalStatus={() => void refreshTextRemovalStatus()}
             onPrepare={prepareImages}
           />
 
@@ -612,7 +977,7 @@ function App() {
                   <button className={`select-check ${image.selected ? 'checked' : ''}`} type="button" aria-label={`${image.selected ? '取消选择' : '选择'} ${image.name}`} onClick={() => updateImage(image.id, { selected: !image.selected })}>{image.selected ? <Check size={15} strokeWidth={3} /> : null}</button>
                   {image.status === 'tagging' ? <div className="reading-state"><Aperture size={19} className="spin" />正在读取</div> : null}
                 </div>
-                <div className="film-caption"><strong>{image.name}</strong><span className={image.tags.length || image.preparation ? 'ready' : ''}>{image.tags.length ? <><CircleCheck size={14} />{image.tags.length} 个标签</> : image.preparation ? <><CircleCheck size={14} />已准备 {image.preparation.outputDimensions.width}×{image.preparation.outputDimensions.height}</> : '等待准备图片'}</span></div>
+                <div className="film-caption"><strong>{image.name}</strong><span className={image.status === 'failed' ? 'failed' : image.tags.length || image.preparation ? 'ready' : ''}>{image.status === 'failed' ? `准备失败${image.error ? ` · ${image.error}` : ''}` : image.tags.length ? <><CircleCheck size={14} />{image.tags.length} 个标签</> : image.preparation ? <><CircleCheck size={14} />已准备 {image.preparation.outputDimensions.width}×{image.preparation.outputDimensions.height}{image.preparation.textRemoval ? ` · ${image.preparation.textRemoval.fallbackReason ? '快速修复' : 'LaMA 修复'}` : ''}</> : '等待准备图片'}</span></div>
               </article>
             ))}
             <button className="add-film" type="button" onClick={() => fileInput.current?.click()}><span><Plus size={27} /></span><strong>放入更多图片</strong><small>PNG、JPG、WEBP</small></button>
@@ -628,17 +993,61 @@ function App() {
           </div>
           <div className="photo-mat">
             <button
-              className={`large-preview preview-open demo-${Math.max(0, images.indexOf(activeImage)) % 4} ${activeImage.local ? 'local-image' : ''}`}
+              className={`large-preview preview-open demo-${Math.max(0, images.indexOf(activeImage)) % 4} ${activeImage.local ? 'local-image' : ''} ${textRemovalEnabled ? 'text-removal-active' : ''}`}
               type="button"
               aria-label={`放大查看 ${activeImage.name}`}
               style={activeImage.url ? { backgroundImage: `url("${activeImage.url}")` } : undefined}
-              onClick={() => activeImage.url && setLightboxImage({ name: activeImage.name, url: activeImage.url })}
+              onPointerDown={beginTextRegion}
+              onPointerMove={updateTextRegion}
+              onPointerUp={commitTextRegion}
+              onPointerCancel={() => setDraftRegion(null)}
+              onClick={() => {
+                if (textRemovalEnabled) return
+                if (activeImage.url) setLightboxImage({ id: activeImage.id, name: activeImage.name, url: activeImage.url })
+              }}
             >
+              {[...activeTextRegions, ...(draftRegion ? [draftRegion] : [])].map((region) => region.box ? (
+                <span
+                  key={region.id}
+                  className={`manual-text-region ${region.id === draftRegion?.id ? 'draft' : ''}`}
+                  style={{
+                    left: `${region.box.x * 100}%`,
+                    top: `${region.box.y * 100}%`,
+                    width: `${region.box.width * 100}%`,
+                    height: `${region.box.height * 100}%`,
+                  }}
+                />
+              ) : null)}
               {activeImage.status === 'tagging' ? <div className="preview-scan"><span /></div> : null}
-              <span className="preview-expand"><Maximize2 size={14} />放大查看</span>
+              <span className="preview-expand"><Maximize2 size={14} />{textRemovalEnabled ? '点击或拖拽框选文字 / 水印' : '放大查看'}</span>
             </button>
+            {activeImage.url ? (
+              <button
+                className="preview-edit-button"
+                type="button"
+                onClick={() => setLightboxImage({ id: activeImage.id, name: activeImage.name, url: activeImage.url })}
+              >
+                <Maximize2 size={14} />
+                {textRemovalEnabled ? '放大编辑区域' : '放大查看'}
+              </button>
+            ) : null}
             <span>{strategies[trainingType].label} · {activeImage.name}</span>
           </div>
+
+          {textRemovalEnabled ? (
+            <div className="text-region-tools">
+              <div>
+                <strong>文字 / 水印框</strong>
+                <small>{activeTextRegions.length ? `当前图 ${activeTextRegions.length} 个区域` : '点击或拖拽大图添加区域'}</small>
+              </div>
+              {activeTextRegions.length ? <button type="button" onClick={clearActiveTextRegions}>清空当前图</button> : null}
+              {activeTextRegions.map((region, index) => (
+                <button key={region.id} type="button" onClick={() => removeTextRegion(activeImage.id, region.id)}>
+                  删除区域 {index + 1}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           <section className="tag-section">
             <div className="section-title"><div><h2>这张图片里有什么？</h2><p>删掉不准确的内容，保留你希望模型学会的内容。</p></div><button type="button" onClick={cleanTags}>自动整理</button></div>
@@ -674,7 +1083,23 @@ function App() {
       </aside>
 
       <div className="toast" aria-live="polite">{notice}</div>
-      <ImageLightbox image={lightboxImage} onClose={() => setLightboxImage(null)} />
+      <ImageLightbox
+        image={lightboxImage}
+        textRemoval={lightboxImage && textRemovalEnabled ? {
+          regions: manualTextRegions[lightboxImage.id] ?? [],
+          prepareStatus: lightboxPrepareBlockReason ?? undefined,
+          prepareDisabled: isPreparing,
+          prepareBusy: isPreparing,
+          onAddRegion: (region) => addTextRegion(lightboxImage.id, region),
+          onRemoveRegion: (regionId) => removeTextRegion(lightboxImage.id, regionId),
+          onClearRegions: () => setManualTextRegions((current) => ({ ...current, [lightboxImage.id]: [] })),
+          onPrepare: async (regions) => {
+            const message = await prepareImages({ ...manualTextRegions, [lightboxImage.id]: regions })
+            return message
+          },
+        } : undefined}
+        onClose={() => setLightboxImage(null)}
+      />
       </div>
     </div>
   )

@@ -19,8 +19,10 @@ describe('browser desktop API fallback', () => {
 
   it('builds the preload bridge from the same safe contract', async () => {
     const invokedChannels: string[] = []
+    const invokedValues: unknown[] = []
     const preloadApi = createDesktopApi(async (channel, value) => {
       invokedChannels.push(channel)
+      invokedValues.push(value)
       if (value) return value
       return { environment: 'electron', platform: 'win32' }
     })
@@ -40,6 +42,8 @@ describe('browser desktop API fallback', () => {
     await preloadApi.loadProject()
     await expect(preloadApi.saveProject(project)).resolves.toEqual(project)
     await preloadApi.prepareImages({ mode: 'preserve-aspect' })
+    await preloadApi.detectTextRegions(['image-a', 'image-b'])
+    await preloadApi.getTextRemovalStatus()
     await preloadApi.getModelStatus()
     await preloadApi.installRecommendedModel()
     await preloadApi.selectExistingModel()
@@ -50,11 +54,14 @@ describe('browser desktop API fallback', () => {
       'lora-studio:load-project',
       'lora-studio:save-project',
       'lora-studio:prepare-images',
+      'lora-studio:detect-text-regions',
+      'lora-studio:get-text-removal-status',
       'lora-studio:get-model-status',
       'lora-studio:install-recommended-model',
       'lora-studio:select-existing-model',
       'lora-studio:remove-model',
     ])
+    expect(invokedValues[5]).toEqual(['image-a', 'image-b'])
   })
 
   it('subscribes to safe model download progress events', () => {

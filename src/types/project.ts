@@ -12,6 +12,7 @@ export type ProjectImageDto = {
   selected: boolean
   status: ProjectImageStatus
   preparation?: ImagePreparationDto
+  error?: string
 }
 
 export type ProjectDto = {

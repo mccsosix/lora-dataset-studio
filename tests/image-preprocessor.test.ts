@@ -69,4 +69,39 @@ describe('preprocessImage', () => {
     expect(result.outputDimensions).toEqual({ width: 1024, height: 1024 })
     expect(outputMetadata).toMatchObject({ format: 'jpeg', width: 1024, height: 1024 })
   })
+
+  it('can resize a cleaned intermediate while keeping the original file base name', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lora-preprocess-cleaned-'))
+    const sourcePath = join(root, 'original.png')
+    const cleanedPath = join(root, 'original.cleaned.jpg')
+    const outputDirectory = join(root, 'processed')
+    await sharp({
+      create: {
+        width: 300,
+        height: 200,
+        channels: 3,
+        background: { r: 10, g: 20, b: 30 },
+      },
+    }).png().toFile(sourcePath)
+    await sharp({
+      create: {
+        width: 300,
+        height: 200,
+        channels: 3,
+        background: { r: 220, g: 210, b: 200 },
+      },
+    }).jpeg().toFile(cleanedPath)
+
+    const result = await preprocessImage({
+      imageId: 'image-1',
+      sourcePath,
+      workingSourcePath: cleanedPath,
+      outputDirectory,
+      settings: { mode: 'white-padding' },
+    })
+
+    expect(result.outputFilename).toBe('original.jpg')
+    const pixel = await sharp(result.outputPath).resize(1, 1).raw().toBuffer()
+    expect(pixel[0]).toBeGreaterThan(150)
+  })
 })

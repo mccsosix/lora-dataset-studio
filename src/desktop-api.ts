@@ -2,6 +2,7 @@ import type { ProjectDto } from './types/project.js'
 import type { PreprocessSettings } from './types/preprocessing.js'
 import type { BatchProgressEvent } from './types/tagging.js'
 import type { ModelDownloadProgress, ModelStatus } from './types/model.js'
+import type { TextRegion, TextRemovalEngineStatus } from './types/text-removal.js'
 
 export type RuntimeInfo = {
   environment: 'browser' | 'electron'
@@ -14,6 +15,8 @@ export interface DesktopApi {
   loadProject(): Promise<ProjectDto | null>
   saveProject(project: ProjectDto): Promise<ProjectDto>
   prepareImages(settings: PreprocessSettings): Promise<ProjectDto>
+  detectTextRegions(imageIds?: string[]): Promise<Record<string, TextRegion[]>>
+  getTextRemovalStatus(): Promise<TextRemovalEngineStatus>
   getModelStatus(): Promise<ModelStatus>
   installRecommendedModel(): Promise<ModelStatus>
   selectExistingModel(): Promise<ModelStatus | null>
@@ -28,6 +31,8 @@ export const desktopApiMethodNames = [
   'loadProject',
   'saveProject',
   'prepareImages',
+  'detectTextRegions',
+  'getTextRemovalStatus',
   'getModelStatus',
   'installRecommendedModel',
   'selectExistingModel',
@@ -55,6 +60,12 @@ export function createDesktopApi(invoke: DesktopInvoke, subscribe: DesktopSubscr
     },
     async prepareImages(settings) {
       return await invoke('lora-studio:prepare-images', settings) as ProjectDto
+    },
+    async detectTextRegions(imageIds) {
+      return await invoke('lora-studio:detect-text-regions', imageIds) as Record<string, TextRegion[]>
+    },
+    async getTextRemovalStatus() {
+      return await invoke('lora-studio:get-text-removal-status') as TextRemovalEngineStatus
     },
     async getModelStatus() {
       return await invoke('lora-studio:get-model-status') as ModelStatus
@@ -119,6 +130,17 @@ export const browserDesktopApi: DesktopApi = {
   },
   async prepareImages() {
     throw new Error('Image preparation is available in the desktop application.')
+  },
+  async detectTextRegions() {
+    throw new Error('批量自动检测仅在桌面应用中可用。')
+  },
+  async getTextRemovalStatus() {
+    return {
+      state: 'fallback',
+      adapterId: 'local-sharp-inpaint',
+      label: '网页预览模式',
+      detail: 'LaMA 修复仅在桌面应用中可用。',
+    }
   },
   async getModelStatus() {
     const response = await fetch('/api/model-status')

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import type { ProjectDto, ProjectImageDto } from '../../src/types/project.js'
-import type { PreprocessImageResult } from './image-preprocessor.js'
+import type { PreprocessImageFailure, PreprocessImageResult } from './image-preprocessor.js'
 import type { BatchState } from './batch-runner.js'
 
 const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp'])
@@ -25,15 +25,18 @@ function stableId(value: string) {
 }
 
 function toImageDto(image: PersistedImage): ProjectImageDto {
+  const version = encodeURIComponent(image.preparation?.processedAt ?? image.sourceModifiedAt)
+  const imageId = encodeURIComponent(image.id)
   return {
     id: image.id,
     name: image.name,
-    previewUrl: `lora-image://image/${encodeURIComponent(image.id)}?v=${encodeURIComponent(image.preparation?.processedAt ?? image.sourceModifiedAt)}`,
+    previewUrl: `lora-image://image/${imageId}?v=${version}`,
     tags: image.tags.map((tag) => ({ ...tag })),
     originalTags: image.originalTags.map((tag) => ({ ...tag })),
     selected: image.selected,
     status: image.status,
     preparation: image.preparation ? { ...image.preparation } : undefined,
+    error: image.error,
   }
 }
 
@@ -138,17 +141,26 @@ export class ProjectStore {
     })) ?? []
   }
 
-  async savePreparationResults(results: PreprocessImageResult[]): Promise<ProjectDto> {
+  async savePreparationResults(results: Array<PreprocessImageResult | PreprocessImageFailure>): Promise<ProjectDto> {
     if (!this.project) throw new Error('No active project.')
     const resultMap = new Map(results.map((result) => [result.imageId, result]))
     this.project.images = this.project.images.map((image) => {
       const result = resultMap.get(image.id)
       if (!result) return image
+      if ('error' in result) {
+        return {
+          ...image,
+          preparation: undefined,
+          error: result.error,
+          status: 'failed',
+        }
+      }
       const { imageId: _imageId, outputPath, ...preparation } = result
       return {
         ...image,
         processedPath: outputPath,
         preparation,
+        error: undefined,
         status: 'prepared',
       }
     })

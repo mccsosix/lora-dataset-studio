@@ -9,6 +9,7 @@ import { registerPreprocessingIpc } from './ipc/preprocessing.js'
 import { registerModelIpc } from './ipc/models.js'
 import { ModelManager, type ModelManifest } from './services/model-manager.js'
 import { ProjectStore } from './services/project-store.js'
+import { getTextRemovalEngineStatus } from './services/image-inpainter.js'
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const rendererUrl = process.env.LORA_STUDIO_RENDERER_URL
@@ -29,13 +30,17 @@ function registerDesktopIpc() {
     environment: 'electron',
     platform: process.platform,
   }))
+  ipcMain.handle('lora-studio:get-text-removal-status', () => (
+    getTextRemovalEngineStatus(path.resolve(currentDirectory, '../..'))
+  ))
 }
 
 function registerImageProtocol() {
   protocol.handle('lora-image', (request) => {
     const url = new URL(request.url)
     if (url.hostname !== 'image') return new Response('Not found', { status: 404 })
-    const previewPath = projectStore.getPreviewPath(decodeURIComponent(url.pathname.slice(1)))
+    const imageId = decodeURIComponent(url.pathname.slice(1))
+    const previewPath = projectStore.getPreviewPath(imageId)
     if (!previewPath) return new Response('Not found', { status: 404 })
     return net.fetch(pathToFileURL(previewPath).toString())
   })

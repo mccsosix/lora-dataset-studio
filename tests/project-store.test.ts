@@ -86,4 +86,35 @@ describe('ProjectStore', () => {
     expect(await restoredStore.loadBatchState()).toEqual(batchState)
     expect(JSON.stringify(await restoredStore.loadProject())).not.toContain('privateModelOutput')
   })
+
+  it('marks failed preparation results without clearing successful processed images', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lora-project-prep-failures-'))
+    const imageFolder = join(root, 'images')
+    const stateFile = join(root, 'user-data', 'project-state.json')
+    await mkdir(imageFolder, { recursive: true })
+    await writeFile(join(imageFolder, 'one.jpg'), Buffer.from('source-one'))
+    await writeFile(join(imageFolder, 'two.jpg'), Buffer.from('source-two'))
+
+    const store = new ProjectStore(stateFile)
+    const project = await store.createProjectFromFolder(imageFolder)
+    const saved = await store.savePreparationResults([
+      {
+        imageId: project.images[0].id,
+        mode: 'preserve-aspect',
+        originalDimensions: { width: 512, height: 512 },
+        outputDimensions: { width: 512, height: 512 },
+        outputFilename: 'one.jpg',
+        outputPath: join(root, 'processed', 'one.jpg'),
+        processedAt: '2026-06-20T00:00:00.000Z',
+      },
+      {
+        imageId: project.images[1].id,
+        error: 'Inpainting failed',
+      },
+    ])
+
+    expect(saved.images[0]).toMatchObject({ status: 'prepared', preparation: { outputFilename: 'one.jpg' } })
+    expect(saved.images[1]).toMatchObject({ status: 'failed', error: 'Inpainting failed' })
+    expect(saved.images[1].preparation).toBeUndefined()
+  })
 })
