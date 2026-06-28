@@ -495,6 +495,13 @@ function App() {
     setManualTextRegions((current) => ({ ...current, [activeImage.id]: [] }))
   }
 
+  const clearSelectedImages = () => {
+    if (!selectedCount) return
+    setImages((current) => current.map((image) => image.selected ? { ...image, selected: false } : image))
+    if (batchScope === 'selected') setBatchScope('all')
+    setNotice(`已取消 ${selectedCount} 张图片的勾选。`)
+  }
+
   const clearBatchAutoTextRegions = () => {
     const clearedCount = countAutoTextRegionsForImages(manualTextRegions, batchTargetImageIds)
     if (!clearedCount) {
@@ -952,6 +959,7 @@ function App() {
             isCheckingTextRemovalStatus={isCheckingTextRemovalStatus}
             onModeChange={setPreprocessMode}
             onBatchScopeChange={setBatchScope}
+            onClearSelectedImages={clearSelectedImages}
             onTextRemovalChange={setTextRemovalEnabled}
             onAutoDetectTextRegions={() => void autoDetectTextRegions()}
             onClearAutoTextRegions={clearBatchAutoTextRegions}

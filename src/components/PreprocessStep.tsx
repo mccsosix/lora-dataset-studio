@@ -1,4 +1,4 @@
-import { CheckCircle2, Copy, Crop, Eraser, Frame, LoaderCircle, ScanLine } from 'lucide-react'
+import { CheckCircle2, Copy, Crop, Eraser, Frame, LoaderCircle, ScanLine, X } from 'lucide-react'
 import type { PreprocessMode } from '../types/preprocessing'
 import type { TextRemovalEngineStatus } from '../types/text-removal'
 
@@ -67,6 +67,7 @@ type PreprocessStepProps = {
   isCheckingTextRemovalStatus?: boolean
   onModeChange: (mode: PreprocessMode) => void
   onBatchScopeChange: (scope: 'all' | 'selected') => void
+  onClearSelectedImages?: () => void
   onTextRemovalChange: (enabled: boolean) => void
   onAutoDetectTextRegions: () => void
   onClearAutoTextRegions?: () => void
@@ -95,6 +96,7 @@ export function PreprocessStep({
   isCheckingTextRemovalStatus = false,
   onModeChange,
   onBatchScopeChange,
+  onClearSelectedImages,
   onTextRemovalChange,
   onAutoDetectTextRegions,
   onClearAutoTextRegions,
@@ -153,6 +155,12 @@ export function PreprocessStep({
           <button type="button" role="radio" aria-checked={batchScope === 'selected'} className={batchScope === 'selected' ? 'active' : ''} disabled={selectedCount === 0} onClick={() => onBatchScopeChange('selected')}>
             仅已勾选 {selectedCount} 张
           </button>
+          {selectedCount > 0 ? (
+            <button type="button" className="clear-selected" onClick={onClearSelectedImages}>
+              <X size={13} />
+              清空勾选
+            </button>
+          ) : null}
         </div>
         <label className="text-removal-toggle" title={textRemovalStatus?.detail}>
           <input type="checkbox" checked={textRemovalEnabled} onChange={(event) => onTextRemovalChange(event.target.checked)} />

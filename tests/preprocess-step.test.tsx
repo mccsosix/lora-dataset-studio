@@ -146,6 +146,29 @@ describe('PreprocessStep', () => {
     expect(markup).toContain('套用当前图区域')
   })
 
+  it('shows a clear selected shortcut when images are selected', () => {
+    const markup = renderToStaticMarkup(
+      <PreprocessStep
+        mode="preserve-aspect"
+        totalCount={177}
+        selectedCount={3}
+        batchScope="selected"
+        preparedCount={0}
+        isPreparing={false}
+        textRemovalEnabled={false}
+        manualRegionCount={0}
+        onModeChange={() => undefined}
+        onBatchScopeChange={() => undefined}
+        onTextRemovalChange={() => undefined}
+        onAutoDetectTextRegions={() => undefined}
+        onClearSelectedImages={() => undefined}
+        onPrepare={() => undefined}
+      />,
+    )
+
+    expect(markup).toContain('清空勾选')
+  })
+
   it('shows text-removal setup recovery when LaMA is unavailable', () => {
     const markup = renderToStaticMarkup(
       <PreprocessStep
