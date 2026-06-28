@@ -197,4 +197,86 @@ describe('detectTextRegionsInImage', () => {
       return box.y < 0.25 && box.width > 0.18
     })).toBe(false)
   })
+
+  it('detects the top-left watermark without boxing the face on portrait samples', async () => {
+    const regions = await detectTextRegionsInImage({
+      imageId: 'portrait-watermark',
+      sourcePath: 'C:/Users/Moc/Pictures/fdzz/02-pictechcc-watermarked.png',
+    })
+
+    expect(regions.some((region) => {
+      const box = region.box
+      if (!box) return false
+      return box.x < 0.2 && box.y < 0.18 && box.width > 0.08 && box.height > 0.06
+    })).toBe(true)
+    expect(regions.some((region) => {
+      const box = region.box
+      if (!box) return false
+      return box.x > 0.18 && box.y < 0.28 && box.width > 0.18 && box.height > 0.12
+    })).toBe(false)
+    expect(regions.filter((region) => {
+      const box = region.box
+      if (!box) return false
+      return box.x < 0.34 && box.y < 0.3
+    })).toHaveLength(1)
+  })
+
+  it('detects the top-left watermark without boxing large body highlights on camera-frame samples', async () => {
+    const regions = await detectTextRegionsInImage({
+      imageId: 'camera-frame-watermark',
+      sourcePath: 'C:/Users/Moc/Pictures/fdzz/2 (3).png',
+    })
+
+    expect(regions.some((region) => {
+      const box = region.box
+      if (!box) return false
+      return box.x < 0.24 && box.y < 0.18 && box.width > 0.08 && box.height > 0.06
+    })).toBe(true)
+    expect(regions.some((region) => {
+      const box = region.box
+      if (!box) return false
+      const centerX = box.x + box.width / 2
+      const centerY = box.y + box.height / 2
+      return centerX > 0.16 && centerX < 0.84 && centerY > 0.22 && box.height > 0.12
+    })).toBe(false)
+  })
+
+  it('ignores camera overlay chrome when there is no watermark text', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lora-text-region-camera-ui-'))
+    const sourcePath = join(root, 'camera-ui.png')
+    try {
+      await sharp({
+        create: {
+          width: 520,
+          height: 720,
+          channels: 3,
+          background: '#2f415c',
+        },
+      })
+        .composite([
+          {
+            input: Buffer.from(`
+              <svg width="520" height="720" xmlns="http://www.w3.org/2000/svg">
+                <path d="M18 18 H125 M18 18 V160 M395 18 H502 M502 18 V160 M18 560 V702 M18 702 H125 M502 560 V702 M395 702 H502" stroke="#fff" stroke-width="5" fill="none"/>
+                <circle cx="58" cy="64" r="13" fill="#f22"/>
+                <rect x="438" y="46" width="46" height="22" stroke="#fff" stroke-width="4" fill="none"/>
+                <rect x="484" y="53" width="8" height="8" fill="#fff"/>
+                <rect x="42" y="640" width="46" height="18" stroke="#fff" stroke-width="4" fill="none"/>
+                <path d="M52 642 L62 656 M68 642 L78 656" stroke="#fff" stroke-width="4"/>
+              </svg>
+            `),
+            left: 0,
+            top: 0,
+          },
+        ])
+        .png()
+        .toFile(sourcePath)
+
+      const regions = await detectTextRegionsInImage({ imageId: 'camera-ui', sourcePath })
+
+      expect(regions).toEqual([])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

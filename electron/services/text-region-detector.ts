@@ -36,9 +36,12 @@ export async function detectTextRegionsInImage(request: DetectTextRegionsRequest
   const componentRegions = components
     .map((component, index) => componentToRegion(request.imageId, component, info.width, info.height, index))
     .filter((region): region is TextRegion => Boolean(region))
+  const legacyTopLeftRegions = keepClosestTopLeftRegion(componentRegions.filter(isLegacyTopLeftComponent))
   return [
     ...cornerWatermarks,
-    ...componentRegions.filter((region) => isLegacyTopLeftComponent(region) && !cornerWatermarks.some((watermark) => boxesOverlap(region.box, watermark.box))),
+    ...legacyTopLeftRegions.filter((region) => (
+      !cornerWatermarks.some((watermark) => boxesOverlap(region.box, watermark.box) || isSameCornerRegion(region, watermark))
+    )),
   ].slice(0, 12)
 }
 
@@ -160,6 +163,35 @@ function isLegacyTopLeftComponent(region: TextRegion) {
   return box.x < 0.34 && box.y < 0.3
 }
 
+function keepClosestTopLeftRegion(regions: TextRegion[]) {
+  if (regions.length <= 1) return regions
+  return [...regions]
+    .sort((a, b) => topLeftDistance(a) - topLeftDistance(b))
+    .slice(0, 1)
+}
+
+function topLeftDistance(region: TextRegion) {
+  const box = region.box
+  if (!box) return Number.POSITIVE_INFINITY
+  return box.x + box.y + (box.width * box.height * 0.2)
+}
+
+function isSameCornerRegion(region: TextRegion, watermark: TextRegion) {
+  const regionBox = region.box
+  const watermarkBox = watermark.box
+  if (!regionBox || !watermarkBox) return false
+  const regionCenterX = regionBox.x + regionBox.width / 2
+  const regionCenterY = regionBox.y + regionBox.height / 2
+  const watermarkCenterX = watermarkBox.x + watermarkBox.width / 2
+  const watermarkCenterY = watermarkBox.y + watermarkBox.height / 2
+  return (
+    regionCenterX < 0.34
+    && regionCenterY < 0.3
+    && watermarkCenterX < 0.34
+    && watermarkCenterY < 0.3
+  )
+}
+
 function isCameraFrameEdge(x: number, y: number, width: number, height: number) {
   return x < width * 0.025 || y < height * 0.025 || x > width * 0.975 || y > height * 0.975
 }
@@ -258,6 +290,7 @@ function componentToRegion(imageId: string, component: Component, width: number,
     height: boxHeight / height,
   }
   if (!looksLikeWatermarkBox(normalizedBox)) return null
+  if (looksLikeCameraChromeBox(normalizedBox)) return null
 
   return {
     id: `${imageId}-auto-${index}`,
@@ -278,4 +311,10 @@ function looksLikeWatermarkBox(box: { x: number; y: number; width: number; heigh
   if (inTopBand) return touchesLeftCorner || touchesRightCorner
   if (inBottomBand) return (touchesLeftCorner || touchesRightCorner) && box.width < 0.24 && box.height < 0.16
   return false
+}
+
+function looksLikeCameraChromeBox(box: { x: number; y: number; width: number; height: number }) {
+  const inTopLeft = box.x < 0.18 && box.y < 0.08
+  const compactOverlayIcon = box.width < 0.18 && box.height < 0.1
+  return inTopLeft && compactOverlayIcon
 }
